@@ -1,0 +1,777 @@
+{
+  "name": "NGSOC - Boletim diário de Cyber Threat Intelligence",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Configuração segura\n\nEste workflow coleta dados das últimas 24 horas e não contém segredos.\n\nVariáveis de ambiente necessárias:\n- `RANSOMWARE_LIVE_API_KEY`: chave da API PRO ransomware.live\n- `TEAMS_WEBHOOK_URL`: URL do webhook de Workflows/Teams\n\nVariáveis opcionais para correlação Recon5:\n- `RECON5_CLIENTS_URL`: endpoint HTTPS que retorna a base de clientes\n- `RECON5_AUTH_HEADER`: valor completo do header Authorization (por exemplo, `Bearer ...`)\n- `NGSOC_SETORES`: setores de interesse separados por vírgula\n\nAjuste o mapeamento no nó **Normalizar base Recon5** caso o contrato da API use outros campos. Restrinja as variáveis no ambiente do n8n, aplique RBAC ao workflow e use uma conta de serviço somente leitura.",
+        "height": 430,
+        "width": 520,
+        "color": 5
+      },
+      "id": "8f0e53e0-66cb-4acc-8d0f-04a45dc09e0f",
+      "name": "LEIA-ME - configuração e segurança",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1180,
+        -500
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "736656b2-1bc8-45bb-a802-f13d505b998a",
+      "name": "Executar manualmente",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f27bb003-2b4c-4a7a-a7e4-dbb60b501d83",
+      "name": "Todos os dias às 08h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1120,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fim = new Date();\nconst inicio = new Date(fim.getTime() - 24 * 60 * 60 * 1000);\nconst iso = d => d.toISOString();\nconst nvd = new URL('https://services.nvd.nist.gov/rest/json/cves/2.0');\nnvd.searchParams.set('pubStartDate', iso(inicio));\nnvd.searchParams.set('pubEndDate', iso(fim));\nnvd.searchParams.set('resultsPerPage', '2000');\nreturn [{ json: {\n  inicio: iso(inicio),\n  fim: iso(fim),\n  inicioData: iso(inicio).slice(0, 10),\n  fimData: iso(fim).slice(0, 10),\n  nvdUrl: nvd.toString(),\n  ransomwareUrl: 'https://api-pro.ransomware.live/victims/recent',\n  cisaUrl: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',\n  timezone: 'America/Sao_Paulo'\n} }];"
+      },
+      "id": "420892d3-75ff-4bd1-99fb-f0a172898b0a",
+      "name": "Definir janela de 24 horas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -860,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nvdUrl }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "162aa2a0-34c1-4748-89dd-785ef031e801",
+      "name": "Coletar CVEs - NVD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -600,
+        -420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const root = $input.first()?.json ?? {};\nconst rows = Array.isArray(root.vulnerabilities) ? root.vulnerabilities : [];\nconst getMetric = cve => {\n  const m = cve.metrics || {};\n  // Mantém CVSS v2 em \"Sem CVSSv3\", conforme a classificação solicitada.\n  const candidates = [m.cvssMetricV40?.[0], m.cvssMetricV31?.[0], m.cvssMetricV30?.[0]].filter(Boolean);\n  const d = candidates[0]?.cvssData || {};\n  return { score: Number(d.baseScore || 0), severity: String(d.baseSeverity || candidates[0]?.baseSeverity || 'SEM CVSSV3').toUpperCase() };\n};\nconst text = cve => (cve.descriptions || []).find(d => d.lang === 'en')?.value || (cve.descriptions || [])[0]?.value || 'Sem resumo disponível';\nconst counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, 'SEM CVSSV3': 0 };\nconst cves = rows.map(v => {\n  const cve = v.cve || {};\n  const metric = getMetric(cve);\n  const severity = counts[metric.severity] === undefined ? 'SEM CVSSV3' : metric.severity;\n  counts[severity]++;\n  return { id: cve.id || 'N/A', ...metric, severity, resumo: text(cve), publicada: cve.published, url: `https://nvd.nist.gov/vuln/detail/${cve.id}` };\n});\nconst themes = [\n  ['RCE', /remote code execution|arbitrary code execution|execute arbitrary code/i],\n  ['Authentication bypass', /authentication bypass|bypass authentication|unauthenticated/i],\n  ['SQL Injection', /sql injection/i],\n  ['Path traversal', /path traversal|directory traversal/i],\n  ['Elevação de privilégios', /privilege escalation|elevation of privilege/i],\n  ['Takeover', /takeover/i]\n].filter(([, re]) => cves.some(c => ['CRITICAL', 'HIGH'].includes(c.severity) && re.test(c.resumo))).map(([name]) => name);\nreturn [{ json: { nvd: {\n  ok: !root.error,\n  erro: root.error?.message || root.error || null,\n  total: cves.length,\n  contagem: counts,\n  temas: themes,\n  destaques: cves.filter(c => c.severity === 'CRITICAL').sort((a, b) => b.score - a.score).slice(0, 12)\n} } }];"
+      },
+      "id": "a2895487-e6cd-4ee4-a32d-4fc5fb4cf39c",
+      "name": "Normalizar e classificar NVD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.cisaUrl }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "b17721ed-332e-435a-9bb5-60fc94ed4bc4",
+      "name": "Coletar catálogo CISA KEV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -600,
+        -240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const root = $input.first()?.json ?? {};\nconst inicioData = $('Definir janela de 24 horas').first().json.inicioData;\nconst fimData = $('Definir janela de 24 horas').first().json.fimData;\nconst all = Array.isArray(root.vulnerabilities) ? root.vulnerabilities : [];\n// O feed KEV só informa a data (não a hora); por isso a seleção é por datas que interceptam a janela.\nconst novas = all.filter(v => v.dateAdded >= inicioData && v.dateAdded <= fimData).map(v => ({\n  cve: v.cveID,\n  fornecedor: v.vendorProject,\n  produto: v.product,\n  nome: v.vulnerabilityName,\n  adicionadoEm: v.dateAdded,\n  prazo: v.dueDate,\n  ransomware: v.knownRansomwareCampaignUse\n}));\nreturn [{ json: { cisa: { ok: !root.error, erro: root.error?.message || root.error || null, novas } } }];"
+      },
+      "id": "529d1036-f0a7-4250-b968-ea0e846c06b7",
+      "name": "Filtrar novas CISA KEV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.ransomwareUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.RANSOMWARE_LIVE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "caa1795a-ed60-490e-880e-eb3e23d60b38",
+      "name": "Coletar vítimas - ransomware.live PRO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -600,
+        -60
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const root = $input.first()?.json ?? {};\nconst start = new Date($('Definir janela de 24 horas').first().json.inicio).getTime();\nconst end = new Date($('Definir janela de 24 horas').first().json.fim).getTime();\nconst list = Array.isArray(root) ? root : (root.data || root.victims || root.results || []);\nconst victims = (Array.isArray(list) ? list : []).map(v => ({\n  nome: v.victim || v.post_title || v.title || v.name || 'N/A',\n  grupo: v.group || v.group_name || v.ransomware_group || 'N/A',\n  pais: String(v.country || v.country_code || 'N/A').toUpperCase(),\n  setor: v.activity || v.sector || v.industry || 'N/A',\n  descobertoEm: v.discovered || v.discovered_at || v.created_at || v.date,\n  dominio: v.website || v.domain || '',\n  url: v.permalink || v.claim_url || v.url || ''\n})).filter(v => {\n  const t = new Date(v.descobertoEm).getTime();\n  return Number.isFinite(t) && t >= start && t <= end;\n});\nconst countBy = key => Object.entries(victims.reduce((a, v) => { const k = v[key] || 'N/A'; a[k] = (a[k] || 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]);\nreturn [{ json: { ransomware: {\n  ok: !root.error,\n  erro: root.error?.message || root.error || null,\n  total: victims.length,\n  brasil: victims.filter(v => v.pais === 'BR').length,\n  porGrupo: countBy('grupo'),\n  porPais: countBy('pais'),\n  porSetor: countBy('setor'),\n  vitimas: victims\n} } }];"
+      },
+      "id": "7db05d11-c9d1-47b5-b3e7-f1c69bda169a",
+      "name": "Filtrar e agregar ransomware",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "db7b3105-6d6f-4aa6-b90f-ccca5e671239",
+              "leftValue": "={{ Boolean($env.RECON5_CLIENTS_URL) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f30fc7f-b619-45bc-b44f-6ea679c22908",
+      "name": "Recon5 configurada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -600,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.RECON5_CLIENTS_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.RECON5_AUTH_HEADER }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "1c084659-d889-4d16-9f13-61ae810fbefb",
+      "name": "Carregar base de clientes Recon5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -340,
+        100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const root = $input.first()?.json ?? {};\nconst list = Array.isArray(root) ? root : (root.clients || root.data || root.results || root.items || []);\nconst clientes = (Array.isArray(list) ? list : []).map(c => ({\n  nome: c.name || c.nome || c.company_name || c.organization || '',\n  dominios: [c.domain, c.dominio, ...(Array.isArray(c.domains) ? c.domains : []), ...(Array.isArray(c.dominios) ? c.dominios : [])].filter(Boolean),\n  aliases: [c.alias, ...(Array.isArray(c.aliases) ? c.aliases : [])].filter(Boolean),\n  setor: c.sector || c.setor || c.industry || ''\n})).filter(c => c.nome || c.dominios.length);\nreturn [{ json: { recon5: { configurada: true, ok: !root.error, erro: root.error?.message || root.error || null, clientes } } }];"
+      },
+      "id": "48453fc9-f853-4ecb-ad76-27de05b62d0c",
+      "name": "Normalizar base Recon5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { recon5: { configurada: false, ok: false, erro: 'RECON5_CLIENTS_URL não configurada; correlação nominal não executada.', clientes: [] } } }];"
+      },
+      "id": "be21f3d3-e3fc-4edb-b73a-39013f785d13",
+      "name": "Sinalizar Recon5 não configurada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://feeds.feedburner.com/TheHackersNews",
+        "options": {}
+      },
+      "id": "df6d7829-f3d9-46aa-b04f-ab4882e14da8",
+      "name": "Notícias - The Hacker News",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.bleepingcomputer.com/feed/",
+        "options": {}
+      },
+      "id": "27250458-51ef-4734-a720-edc92395649b",
+      "name": "Notícias - BleepingComputer",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        540
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "a905bd18-625e-4a41-bb95-8203bcd76cb9",
+      "name": "Unir feeds de notícias",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -340,
+        470
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const start = new Date($('Definir janela de 24 horas').first().json.inicio).getTime();\nconst end = new Date($('Definir janela de 24 horas').first().json.fim).getTime();\nconst strip = s => String(s || '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst seen = new Set();\nconst noticias = $input.all().map(i => i.json).map(n => ({\n  titulo: strip(n.title),\n  link: n.link || n.guid || '',\n  publicadaEm: n.isoDate || n.pubDate || n.pubdate || n.date,\n  resumo: strip(n.contentSnippet || n.content || n.description).slice(0, 280),\n  fonte: String(n.link || '').includes('bleepingcomputer') ? 'BleepingComputer' : 'The Hacker News'\n})).filter(n => {\n  const t = new Date(n.publicadaEm).getTime();\n  const key = n.link || n.titulo.toLowerCase();\n  if (!n.titulo || seen.has(key) || !Number.isFinite(t) || t < start || t > end) return false;\n  seen.add(key);\n  return true;\n}).sort((a, b) => new Date(b.publicadaEm) - new Date(a.publicadaEm)).slice(0, 8);\nreturn [{ json: { noticias: { total: noticias.length, itens: noticias } } }];"
+      },
+      "id": "407ec85f-b190-459a-99dd-94a05e93df87",
+      "name": "Selecionar notícias das últimas 24h",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        470
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "eb29a2a7-2cf6-49c7-87c4-327b39ff4087",
+      "name": "Consolidar NVD e CISA",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        120,
+        -330
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "cf8f02cd-fde1-460a-a2ba-c8dd4f13c077",
+      "name": "Adicionar ransomware",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        340,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "575cb4c2-e0d4-4f7c-b7c4-4b0735139427",
+      "name": "Adicionar correlação Recon5",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "5200a9b2-99d4-4432-bccd-95b998f871e6",
+      "name": "Consolidar boletim",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        780,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d = $input.first().json;\nconst ransomware = d.ransomware || { total: 0, brasil: 0, porGrupo: [], porPais: [], porSetor: [], vitimas: [], ok: false };\nconst cisa = d.cisa || { novas: [], ok: false };\nconst nvd = d.nvd || { total: 0, contagem: {}, temas: [], destaques: [], ok: false };\nconst recon = d.recon5 || { configurada: false, clientes: [] };\nconst news = d.noticias || { itens: [] };\nconst norm = s => String(s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/^www\\./, '').replace(/[^a-z0-9.-]+/g, ' ').trim();\nconst tokens = c => [c.nome, ...(c.aliases || []), ...(c.dominios || [])].map(norm).filter(x => x.length >= 4);\nconst matches = [];\nfor (const v of ransomware.vitimas || []) {\n  const haystack = norm(`${v.nome} ${v.dominio}`);\n  for (const c of recon.clientes || []) {\n    const hit = tokens(c).find(t => haystack === t || haystack.includes(t) || t.includes(haystack));\n    if (hit) matches.push({ cliente: c.nome, vitima: v.nome, grupo: v.grupo, termo: hit });\n  }\n}\nconst setoresEnv = String($env.NGSOC_SETORES || '').split(',').map(norm).filter(Boolean);\nconst setoresClientes = (recon.clientes || []).map(c => norm(c.setor)).filter(Boolean);\nconst setores = [...new Set([...setoresEnv, ...setoresClientes])];\nconst correlatos = (ransomware.vitimas || []).filter(v => { const s = norm(v.setor); return setores.some(x => x.length >= 4 && (s.includes(x) || x.includes(s))); });\nconst top = (rows, max = 12) => rows.slice(0, max).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'nenhum';\nconst statusRecon = !recon.configurada ? 'A correlação nominal com a Recon5 não foi executada porque a integração não está configurada.' : matches.length ? `${matches.length} correspondência(s) potencial(is) com clientes NGSOC exigem validação humana: ${matches.map(m => `${m.cliente} ↔ ${m.vitima} (${m.grupo})`).join('; ')}.` : 'Nenhum cliente NGSOC aparece como correspondência nominal nas divulgações coletadas (cruzamento automatizado com a base Recon5).';\nconst cveLines = (nvd.destaques || []).map(c => `- [${c.id}](${c.url}) | ${c.score || 'N/A'} | ${c.resumo.slice(0, 180)}`).join('\\n') || '- Nenhum CVE Critical publicado na janela.';\nconst kevLines = (cisa.novas || []).map(v => `- ${v.cve} — ${v.fornecedor} ${v.produto}: ${v.nome}`).join('\\n') || '- Não houve adições identificadas no catálogo CISA KEV na janela.';\nconst newsLines = (news.itens || []).map(n => `- [${n.titulo}](${n.link}) — ${n.fonte}`).join('\\n') || '- Nenhuma notícia nova foi obtida dos feeds na janela.';\nconst br = ransomware.brasil === 0 ? 'Nenhuma vítima com país BR no período.' : `${ransomware.brasil} vítima(s) com país BR no período.`;\nconst mensagem = `Bom dia, pessoal!\\n\\nNas últimas 24 horas, ${statusRecon} Foram observadas **${ransomware.total}** novas alegações em leak sites; ${br}${correlatos.length ? ` Há ${correlatos.length} ocorrência(s) em setores correlatos aos segmentos configurados.` : ''}\\n\\nO monitoramento contemplou possíveis vazamentos, menções a clientes e setores, vulnerabilidades publicadas, exploração ativa conhecida, novas alegações de ransomware e notícias relevantes. Alegações de leak sites são inteligência não confirmada e devem ser corroboradas antes de tratamento como incidente.\\n\\n## 1. Ransomware\\n- Novas vítimas: **${ransomware.total}**\\n- Brasil: **${ransomware.brasil}**\\n- Grupos: ${top(ransomware.porGrupo || [])}\\n- Países: ${top(ransomware.porPais || [])}\\n- Setores: ${top(ransomware.porSetor || [])}\\n\\n## 2. CISA KEV\\n${kevLines}\\n\\n## 3. CVEs NVD (publicados na janela)\\n- Total: **${nvd.total}**\\n- Critical: **${nvd.contagem?.CRITICAL || 0}** | High: **${nvd.contagem?.HIGH || 0}** | Medium: **${nvd.contagem?.MEDIUM || 0}** | Low: **${nvd.contagem?.LOW || 0}** | Sem CVSS: **${nvd.contagem?.['SEM CVSSV3'] || 0}**\\n- Temas Critical + High: ${(nvd.temas || []).join(' · ') || 'nenhum tema-chave identificado'}\\n\\n### Critical — destaques\\n${cveLines}\\n\\n## 4. Principais notícias de cibersegurança\\n${newsLines}\\n\\nSeguimos com o monitoramento contínuo e informaremos prontamente caso sejam identificados eventos que demandem atenção.\\n\\n_Fontes: NVD/NIST, CISA KEV, ransomware.live PRO, The Hacker News e BleepingComputer. Janela UTC: ${$('Definir janela de 24 horas').first().json.inicio} a ${$('Definir janela de 24 horas').first().json.fim}._`;\nconst safe = mensagem.slice(0, 24500);\nreturn [{ json: {\n  mensagemMarkdown: safe,\n  requerAtencao: matches.length > 0 || (cisa.novas || []).length > 0 || (nvd.destaques || []).length > 0,\n  teamsPayload: {\n    type: 'message',\n    attachments: [{\n      contentType: 'application/vnd.microsoft.card.adaptive',\n      contentUrl: null,\n      content: {\n        '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n        type: 'AdaptiveCard',\n        version: '1.4',\n        body: [\n          { type: 'TextBlock', size: 'Large', weight: 'Bolder', text: 'Boletim diário NGSOC — Cyber Threat Intelligence', wrap: true },\n          { type: 'TextBlock', text: safe, wrap: true }\n        ]\n      }\n    }]\n  }\n} }];"
+      },
+      "id": "f0ba6060-fb89-4792-81e8-a8a81b94e114",
+      "name": "Correlacionar e montar boletim",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "02071ebc-e995-4c89-b155-161616e0cf17",
+              "leftValue": "={{ Boolean($env.TEAMS_WEBHOOK_URL) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9bb27899-cafa-4d43-bc15-ab097fa4ff4b",
+      "name": "Webhook do Teams configurado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1260,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.teamsPayload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "fc682db8-791a-4529-9d1e-e8de7dcdb26d",
+      "name": "Enviar ao canal Microsoft Teams",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map(i => ({ json: { ...i.json, aviso: 'TEAMS_WEBHOOK_URL não configurada. O boletim foi gerado, mas não foi enviado.' } }));"
+      },
+      "id": "44312c28-27e4-4b7a-8113-8bbf0d40a73c",
+      "name": "Não enviar - webhook ausente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        120
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Executar manualmente": {
+      "main": [
+        [
+          {
+            "node": "Definir janela de 24 horas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Todos os dias às 08h": {
+      "main": [
+        [
+          {
+            "node": "Definir janela de 24 horas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Definir janela de 24 horas": {
+      "main": [
+        [
+          {
+            "node": "Coletar CVEs - NVD",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Coletar catálogo CISA KEV",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Coletar vítimas - ransomware.live PRO",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Recon5 configurada?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notícias - The Hacker News",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notícias - BleepingComputer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coletar CVEs - NVD": {
+      "main": [
+        [
+          {
+            "node": "Normalizar e classificar NVD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar e classificar NVD": {
+      "main": [
+        [
+          {
+            "node": "Consolidar NVD e CISA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coletar catálogo CISA KEV": {
+      "main": [
+        [
+          {
+            "node": "Filtrar novas CISA KEV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar novas CISA KEV": {
+      "main": [
+        [
+          {
+            "node": "Consolidar NVD e CISA",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Coletar vítimas - ransomware.live PRO": {
+      "main": [
+        [
+          {
+            "node": "Filtrar e agregar ransomware",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar e agregar ransomware": {
+      "main": [
+        [
+          {
+            "node": "Adicionar ransomware",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Recon5 configurada?": {
+      "main": [
+        [
+          {
+            "node": "Carregar base de clientes Recon5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sinalizar Recon5 não configurada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Carregar base de clientes Recon5": {
+      "main": [
+        [
+          {
+            "node": "Normalizar base Recon5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar base Recon5": {
+      "main": [
+        [
+          {
+            "node": "Adicionar correlação Recon5",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Sinalizar Recon5 não configurada": {
+      "main": [
+        [
+          {
+            "node": "Adicionar correlação Recon5",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Notícias - The Hacker News": {
+      "main": [
+        [
+          {
+            "node": "Unir feeds de notícias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notícias - BleepingComputer": {
+      "main": [
+        [
+          {
+            "node": "Unir feeds de notícias",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Unir feeds de notícias": {
+      "main": [
+        [
+          {
+            "node": "Selecionar notícias das últimas 24h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selecionar notícias das últimas 24h": {
+      "main": [
+        [
+          {
+            "node": "Consolidar boletim",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Consolidar NVD e CISA": {
+      "main": [
+        [
+          {
+            "node": "Adicionar ransomware",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adicionar ransomware": {
+      "main": [
+        [
+          {
+            "node": "Adicionar correlação Recon5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adicionar correlação Recon5": {
+      "main": [
+        [
+          {
+            "node": "Consolidar boletim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar boletim": {
+      "main": [
+        [
+          {
+            "node": "Correlacionar e montar boletim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correlacionar e montar boletim": {
+      "main": [
+        [
+          {
+            "node": "Webhook do Teams configurado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook do Teams configurado?": {
+      "main": [
+        [
+          {
+            "node": "Enviar ao canal Microsoft Teams",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Não enviar - webhook ausente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "7a26d67d-b692-4860-8976-03d3c0b46b43",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
