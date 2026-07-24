@@ -1,4 +1,4 @@
-# Sentinel CTI
+# Palmer CTI Investigate
 
 Plataforma web de Cyber Threat Intelligence para cadastrar, relacionar, pesquisar e
 enriquecer indicadores de ameaças.

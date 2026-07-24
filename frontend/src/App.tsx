@@ -55,7 +55,7 @@ function Login() {
       <section className="login-card">
         <ShieldAlert size={40} />
         <p className="eyebrow">CYBER THREAT INTELLIGENCE</p>
-        <h1>Sentinel CTI</h1>
+        <h1>Palmer CTI Investigate</h1>
         <p className="muted">Inteligência acionável, em um único lugar.</p>
         <form onSubmit={submit}>
           <label>E-mail<input name="email" type="email" required /></label>
@@ -85,7 +85,7 @@ function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside>
-        <div className="brand"><ShieldAlert /><div><strong>Sentinel</strong><small>CTI PLATFORM</small></div></div>
+        <div className="brand"><ShieldAlert /><div><strong>Palmer</strong><small>CTI INVESTIGATE</small></div></div>
         <nav>
           {links.map(([path, label, Icon]) => (
             <NavLink key={path} to={path} end={path === "/"}>
@@ -241,7 +241,7 @@ function Timeline() {
 }
 
 function Header({ title, subtitle, action }: { title: string; subtitle: string; action?: ReactNode }) {
-  return <header className="page-header"><div><p className="eyebrow">SENTINEL CTI</p><h1>{title}</h1><p>{subtitle}</p></div>{action}</header>;
+  return <header className="page-header"><div><p className="eyebrow">PALMER CTI INVESTIGATE</p><h1>{title}</h1><p>{subtitle}</p></div>{action}</header>;
 }
 
 function Protected({ children }: { children: ReactNode }) {

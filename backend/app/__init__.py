@@ -1,1 +1,1 @@
-"""Sentinel CTI API."""
+"""Palmer CTI Investigate API."""

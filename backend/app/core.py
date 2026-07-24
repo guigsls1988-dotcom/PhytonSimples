@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Sentinel CTI"
+    app_name: str = "Palmer CTI Investigate"
     environment: str = "development"
     database_url: str = "postgresql+asyncpg://cti:cti@db:5432/cti"
     jwt_secret: str = "change-me-in-production"

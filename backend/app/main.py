@@ -18,7 +18,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Sentinel CTI API",
+    title="Palmer CTI Investigate API",
     description="Plataforma para gestão e enriquecimento de Cyber Threat Intelligence.",
     version="1.0.0",
     lifespan=lifespan,
