@@ -1,0 +1,1022 @@
+{
+  "name": "Report Diário CTI — Enterprise v2",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "00b754eb-185a-4cca-85d3-bf63a3abffd7",
+      "name": "Daily 08:30 BRT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "baseUrl",
+              "name": "baseUrl",
+              "type": "string",
+              "value": "={{ $env.RECON5_BASE_URL || 'https://api-v2.recon5.com.br' }}"
+            },
+            {
+              "id": "username",
+              "name": "username",
+              "type": "string",
+              "value": "={{ $env.RECON5_USERNAME }}"
+            },
+            {
+              "id": "recon5Password",
+              "name": "recon5Password",
+              "type": "string",
+              "value": "={{ $env.RECON5_PASSWORD }}"
+            },
+            {
+              "id": "tenantId",
+              "name": "tenantId",
+              "type": "string",
+              "value": "={{ $env.RECON5_TENANT_ID }}"
+            },
+            {
+              "id": "organization",
+              "name": "organization",
+              "type": "string",
+              "value": "={{ $env.CTI_ORGANIZATION || 'Netfive / Recon5' }}"
+            },
+            {
+              "id": "classification",
+              "name": "classification",
+              "type": "string",
+              "value": "={{ $env.CTI_CLASSIFICATION || 'CONFIDENCIAL' }}"
+            },
+            {
+              "id": "timezone",
+              "name": "timezone",
+              "type": "string",
+              "value": "America/Sao_Paulo"
+            },
+            {
+              "id": "lookbackHours",
+              "name": "lookbackHours",
+              "type": "number",
+              "value": 24
+            },
+            {
+              "id": "ransomwareLimit",
+              "name": "ransomwareLimit",
+              "type": "number",
+              "value": 500
+            },
+            {
+              "id": "cveLimit",
+              "name": "cveLimit",
+              "type": "number",
+              "value": 500
+            },
+            {
+              "id": "reportVersion",
+              "name": "reportVersion",
+              "type": "string",
+              "value": "2.0.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "16cc8c85-b23c-47ea-a6a6-d7d7787e146a",
+      "name": "Config CTI",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        0
+      ],
+      "notes": "Configuração central. Defina RECON5_USERNAME, RECON5_PASSWORD e RECON5_TENANT_ID no ambiente do n8n. Nunca grave segredos neste node."
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Validar Configuração Segura').first().json;\nconst zone = cfg.timezone || 'America/Sao_Paulo';\nconst end = $now.setZone(zone);\nconst start = end.minus({ hours: Number(cfg.lookbackHours || 24) });\nconst generatedDate = end.toFormat('yyyy-MM-dd');\nreturn [{ json: {\n  ...cfg,\n  discoveredFrom: start.toUTC().toISO(),\n  discoveredTo: end.toUTC().toISO(),\n  publishedFrom: start.toUTC().toISO(),\n  publishedTo: end.toUTC().toISO(),\n  periodLabel: start.toFormat('dd/MM/yyyy HH:mm') + ' BRT → ' + end.toFormat('dd/MM/yyyy HH:mm') + ' BRT',\n  generatedAt: generatedDate,\n  generatedAtLabel: end.toFormat('dd/MM/yyyy HH:mm:ss') + ' BRT',\n  windowMode: 'rolling_window',\n  windowHours: Number(cfg.lookbackHours || 24),\n  reportId: cfg.runId,\n  filename: 'relatorio_cti_' + generatedDate + '_' + cfg.runId + '.txt',\n  pdfFileName: 'relatorio_cti_' + generatedDate + '_' + cfg.runId + '.pdf',\n  htmlFileName: 'relatorio_cti_' + generatedDate + '_' + cfg.runId + '.html',\n} }];"
+      },
+      "id": "68fb9165-647d-4598-a9a8-46ee4b797634",
+      "name": "Calcular Janela",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.baseUrl }}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ username: $json.username, password: $json.recon5Password }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "4d28c2c9-1902-4ce3-bf84-509ee221cfa1",
+      "name": "Login Recon5",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/ransomware/victims",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "discoveredFrom",
+              "value": "={{ $('Calcular Janela').item.json.discoveredFrom }}"
+            },
+            {
+              "name": "discoveredTo",
+              "value": "={{ $('Calcular Janela').item.json.discoveredTo }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $('Calcular Janela').item.json.ransomwareLimit }}"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + ($json.token || $json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "a06a01cf-0eb5-4dfa-9a6c-f8bece1c2a82",
+      "name": "GET Ransomware",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1104,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/cisa-kev/entries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "200"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($('Login Recon5').item.json.token || $('Login Recon5').item.json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "2562ffd2-62ae-4d1c-83f2-0d4eac43609d",
+      "name": "GET CISA KEV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1328,
+        0
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/nvd/entries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "publishedFrom",
+              "value": "={{ $('Calcular Janela').item.json.publishedFrom }}"
+            },
+            {
+              "name": "publishedTo",
+              "value": "={{ $('Calcular Janela').item.json.publishedTo }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $('Calcular Janela').item.json.cveLimit }}"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($('Login Recon5').item.json.token || $('Login Recon5').item.json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "2a6ca7bc-0fd5-426b-be4f-5f5c3b919387",
+      "name": "GET CVEs NVD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        0
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "jsCode": "const win = $('Calcular Janela').first().json;\nconst ransRaw = $('GET Ransomware').first().json;\nconst kevRaw = $('GET CISA KEV').first().json;\nconst cveRaw = $('GET CVEs NVD').first().json;\nconst sevC = Number(($('GET CVE Sev Critical').first().json || {}).total ?? NaN);\nconst sevH = Number(($('GET CVE Sev High').first().json || {}).total ?? NaN);\nconst sevM = Number(($('GET CVE Sev Medium').first().json || {}).total ?? NaN);\nconst sevL = Number(($('GET CVE Sev Low').first().json || {}).total ?? NaN);\nconst companiesRaw = $('Clientes NGSOC').first().json;\n\nconst victims = Array.isArray(ransRaw?.items) ? ransRaw.items : (Array.isArray(ransRaw) ? ransRaw : []);\nconst kevEntries = Array.isArray(kevRaw?.items) ? kevRaw.items : (Array.isArray(kevRaw) ? kevRaw : []);\nconst cveItems = Array.isArray(cveRaw?.items) ? cveRaw.items : (Array.isArray(cveRaw) ? cveRaw : []);\nconst companies = Array.isArray(companiesRaw?.companies) ? companiesRaw.companies : [];\n\nconst ngsoc = companies.filter(c => String(c.name || '').includes('(NGSOC)'));\nconst ngsocNames = ngsoc.map(c => String(c.name || '').replace(/\\s*\\(NGSOC\\)\\s*/i, '').trim().toLowerCase());\n\nfunction norm(s) { return String(s || '').toLowerCase().trim(); }\nfunction countBy(arr, keyFn) {\n  const m = {};\n  for (const x of arr) {\n    const k = keyFn(x) || 'N/A';\n    m[k] = (m[k] || 0) + 1;\n  }\n  return Object.entries(m).sort((a, b) => b[1] - a[1]);\n}\nfunction topLines(entries, n = 12) {\n  return entries.slice(0, n).map(([k, v]) => '- ' + k + ': ' + v).join('\\n') || '- (sem dados)';\n}\nfunction dayKey(iso) {\n  if (!iso) return 'N/A';\n  try {\n    return DateTime.fromISO(String(iso), { zone: 'utc' }).setZone('America/Sao_Paulo').toFormat('dd/MM');\n  } catch (e) {\n    return String(iso).slice(0, 10);\n  }\n}\nfunction titleCaseGroup(g) {\n  const s = String(g || 'N/A');\n  if (s === 'N/A') return s;\n  return s.charAt(0).toUpperCase() + s.slice(1);\n}\n\nconst byDay = countBy(victims, v => dayKey(v.discovered || v.discoveredAt || v.discovered_at));\nconst byGroup = countBy(victims, v => titleCaseGroup(v.group || v.groupName || 'N/A'));\nconst byCountry = countBy(victims, v => v.country || v.countryCode || 'N/A');\nconst bySector = countBy(victims, v => v.sector || (Array.isArray(v.sectorKeys) ? v.sectorKeys.join(',') : '') || 'N/A');\n\nconst brVictims = victims.filter(v => String(v.country || v.countryCode || '').toUpperCase() === 'BR');\nconst brLines = brVictims.map(v =>\n  '- ' + (v.victim || v.name || 'N/A') + ' | ' + (v.group || 'N/A') + ' | ' + (v.sector || 'N/A') + ' | ' + dayKey(v.discovered || v.discoveredAt)\n).join('\\n') || '- Nenhuma no período';\n\nconst nominalHits = victims.filter(v => {\n  const name = norm(v.victim || v.name);\n  return Boolean(name) && ngsocNames.some(n => n && (name.includes(n) || n.includes(name)));\n});\n\nconst fromIso = DateTime.fromISO(win.discoveredFrom);\nconst toIso = DateTime.fromISO(win.discoveredTo);\nconst kevInWindow = kevEntries.filter(e => {\n  const d = e.dateAdded || e.date_added || e.added;\n  if (!d) return false;\n  const dt = DateTime.fromISO(String(d));\n  return dt >= fromIso && dt <= toIso;\n});\nconst kevLines = kevInWindow.slice(0, 20).map(e => {\n  const cve = e.cveId || e.cveID || e.cve || 'N/A';\n  const prod = [e.vendorProject, e.product].filter(Boolean).join(' ') || e.product || e.vendor || 'N/A';\n  const vuln = e.vulnerabilityName || e.shortDescription || e.description || '';\n  const rw = e.knownRansomwareUse || e.knownRansomwareCampaignUse || e.ransomwareUse || 'Unknown';\n  return '- ' + cve + ' | ' + prod + ' | ' + String(vuln).trim().slice(0, 140) + ' | Uso por ransomware: ' + rw;\n}).join('\\n') || '- Nenhuma adição KEV na janela';\n\nfunction sevOf(c) {\n  return String(\n    c.cvss_v3_severity || c.cvssV3Severity || c.severity || c.cvssSeverity || ''\n  ).toUpperCase();\n}\nfunction cveIdOf(c) { return c.cve_id || c.cveId || c.id || 'N/A'; }\nfunction cveScoreOf(c) {\n  const s = c.cvss_v3_score ?? c.cvssV3Score ?? c.cvss ?? '';\n  return s === null || s === undefined ? '' : s;\n}\nfunction cveDescOf(c) { return String(c.description || c.summary || ''); }\n\nconst sevFromPage = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, NONE: 0 };\nfor (const c of cveItems) {\n  const s = sevOf(c);\n  if (s === 'CRITICAL') sevFromPage.CRITICAL++;\n  else if (s === 'HIGH') sevFromPage.HIGH++;\n  else if (s === 'MEDIUM') sevFromPage.MEDIUM++;\n  else if (s === 'LOW') sevFromPage.LOW++;\n  else sevFromPage.NONE++;\n}\n\nconst sev = {\n  CRITICAL: Number.isFinite(sevC) ? sevC : sevFromPage.CRITICAL,\n  HIGH: Number.isFinite(sevH) ? sevH : sevFromPage.HIGH,\n  MEDIUM: Number.isFinite(sevM) ? sevM : sevFromPage.MEDIUM,\n  LOW: Number.isFinite(sevL) ? sevL : sevFromPage.LOW,\n  NONE: 0,\n};\nconst cveTotal = Number(cveRaw?.total ?? cveItems.length);\nconst accounted = sev.CRITICAL + sev.HIGH + sev.MEDIUM + sev.LOW;\nsev.NONE = Math.max(0, cveTotal - accounted);\n\nconst critRaw = $('GET CVE Sev Critical').first().json;\nconst critPool = Array.isArray(critRaw?.items) ? critRaw.items : [];\nconst criticals = (critPool.length ? critPool : cveItems.filter(c => sevOf(c) === 'CRITICAL'))\n  .sort((a, b) => Number(cveScoreOf(b) || 0) - Number(cveScoreOf(a) || 0))\n  .slice(0, 12);\nconst critLines = criticals.map(c => {\n  const id = cveIdOf(c);\n  const score = cveScoreOf(c);\n  const desc = cveDescOf(c).slice(0, 110);\n  return '- ' + id + (score !== '' ? ' | ' + score : '') + ' | ' + desc;\n}).join('\\n') || '- Nenhum Critical na página';\n\nconst highs = cveItems.filter(c => sevOf(c) === 'HIGH').slice(0, 40);\nconst themes = [];\nconst blob = (criticals.concat(highs).map(c => cveDescOf(c) + ' ' + cveIdOf(c))).join(' ').toLowerCase();\nif (/rce|remote code|takeover|arbitrary code/.test(blob)) themes.push('Takeover / RCE');\nif (/auth(entication)? bypass|improper authentication/.test(blob)) themes.push('Authentication bypass');\nif (/sql injection|sqli/.test(blob)) themes.push('SQL Injection');\nif (/path traversal|dot-dot|directory traversal/.test(blob)) themes.push('Path traversal / bypass de filtros');\nif (/privilege|eleva/.test(blob)) themes.push('Elevação de privilégios');\nif (!themes.length) themes.push('Diversos (ver destaques Critical/High)');\n\nconst SEGMENT_MAP = [\n  { keys: ['healthcare', 'health', 'pharma', 'farmac'], label: 'Saúde/Farmacêutico', clients: ['Unimed Vale Rio dos Sinos', 'Hertzfarma'] },\n  { keys: ['manufactur', 'industrial', 'industr'], label: 'Indústria', clients: ['Fitesa', 'Hertzfarma', 'Killing', 'Taurus Armas', 'Vipal', 'Fruki'] },\n  { keys: ['retail', 'e-commerce', 'ecommerce'], label: 'Varejo', clients: ['Piccadilly'] },\n  { keys: ['transport', 'logistics', 'freight'], label: 'Transporte e Logística', clients: ['Cargolift'] },\n  { keys: ['real estate', 'propert', 'imobil'], label: 'Imobiliário', clients: ['Auxiliadora Predial'] },\n  { keys: ['agricult', 'food', 'alimento'], label: 'Alimentos/Agronegócio', clients: ['Santa Clara', 'SLC Agrícola', 'Fruki'] },\n];\n\nconst correlatos = [];\nfor (const seg of SEGMENT_MAP) {\n  const hit = victims.some(v => {\n    const s = norm(v.sector) + ' ' + (Array.isArray(v.sectorKeys) ? v.sectorKeys.join(' ') : '');\n    return seg.keys.some(k => s.includes(k));\n  });\n  if (hit) correlatos.push(seg.label + ' (' + seg.clients.join(', ') + ')');\n}\n\nconst aberturaFatos = [];\nif (nominalHits.length === 0) {\n  aberturaFatos.push('nenhum cliente NGSOC aparece como vítima nominal nas divulgações de ransomware (cruzamento com a base Recon5)');\n} else {\n  aberturaFatos.push('possível match nominal NGSOC: ' + nominalHits.map(v => v.victim || v.name).join(', '));\n}\nif (correlatos.length) {\n  aberturaFatos.push('houve ' + victims.length + ' novas vítimas em leak sites, com atividade em setores correlatos a segmentos NGSOC — ' + correlatos.join(', ') + ' —');\n} else if (bySector.length) {\n  aberturaFatos.push('houve ' + victims.length + ' novas vítimas em leak sites, com atividade em setores observados (' + bySector.slice(0, 5).map(([s]) => s).join(', ') + ')');\n} else {\n  aberturaFatos.push('houve ' + victims.length + ' novas vítimas em leak sites');\n}\nif (brVictims.length) {\n  aberturaFatos.push('incluindo no Brasil ' + brVictims.map(v => (v.victim || v.name) + ' (' + titleCaseGroup(v.group || 'N/A') + ')').join(', '));\n}\nif (kevInWindow.length) {\n  const kevHint = kevInWindow.slice(0, 2).map(e => {\n    const prod = [e.vendorProject, e.product].filter(Boolean).join(' ') || e.product || 'N/A';\n    return prod;\n  }).join(' e ');\n  aberturaFatos.push('No CISA KEV, ' + kevInWindow.length + ' nova(s) entrada(s) (' + kevHint + ')');\n} else {\n  aberturaFatos.push('No CISA KEV, sem novas entradas na janela');\n}\n\nconst report = [\n  'Relatório CTI — Diário (' + win.periodLabel + ')',\n  'Fonte: Recon5 (ransomware.live / CISA KEV / catálogo NVD de CVEs)',\n  'Gerado em: ' + win.generatedAt,\n  'Período: últimas 24 horas → momento da geração',\n  '',\n  '================================================================================',\n  'ABERTURA',\n  '================================================================================',\n  '',\n  'Bom dia, pessoal!',\n  '',\n  'Nas últimas 24 horas, ' + aberturaFatos.join('. ').replace(/\\s+\\./g, '.') + '.',\n  '',\n  'O monitoramento contemplou a análise de possíveis vazamentos de dados, menções aos clientes e aos seus setores, vulnerabilidades críticas (CVEs) com exploração ativa, novas vítimas divulgadas por grupos de ransomware, bem como campanhas maliciosas e demais ameaças relevantes ao cenário de segurança cibernética.',\n  '',\n  'Seguimos com o monitoramento contínuo e informaremos prontamente caso sejam identificados eventos que demandem atenção.',\n  '',\n  '================================================================================',\n  '1. RANSOMWARE (vítimas em leak sites)',\n  '================================================================================',\n  '',\n  'Na janela diária, a inteligência de ameaças do Recon5 registrou ' + victims.length + ' novas vítimas de ransomware em leak sites.',\n  '',\n  'Volume por dia (discovered):',\n  topLines(byDay, 14),\n  '',\n  'Grupos mais ativos:',\n  topLines(byGroup, 12),\n  '',\n  'Países:',\n  topLines(byCountry, 20),\n  '',\n  'Setores:',\n  topLines(bySector, 15),\n  '',\n  'Vítimas no Brasil:',\n  brLines,\n  '',\n  '================================================================================',\n  '2. CISA KEV (Known Exploited Vulnerabilities)',\n  '================================================================================',\n  '',\n  kevInWindow.length\n    ? ('Foram adicionadas ' + kevInWindow.length + ' vulnerabilidades ao catálogo CISA KEV na janela:')\n    : 'Não houve adições ao catálogo CISA KEV na janela.',\n  '',\n  kevLines,\n  '',\n  '================================================================================',\n  '3. CATÁLOGO DE CVEs (NVD)',\n  '================================================================================',\n  '',\n  'No catálogo NVD foram publicadas ' + cveTotal + ' vulnerabilidades na janela, com a seguinte distribuição de severidade CVSSv3:',\n  '',\n  '- Critical: ' + sev.CRITICAL,\n  '- High: ' + sev.HIGH,\n  '- Medium: ' + sev.MEDIUM,\n  '- Low: ' + sev.LOW,\n  '- Sem severidade atribuída (ainda): ' + sev.NONE,\n  '',\n  'Temas predominantes (amostra Critical + High):',\n  themes.map(t => '- ' + t).join('\\n'),\n  '',\n  'Destaques Critical:',\n  critLines,\n].join('\\n');\n\nreturn [{\n  json: {\n    reportText: report,\n    periodLabel: win.periodLabel,\n    generatedAt: win.generatedAt,\n    generatedAtLabel: win.generatedAtLabel,\n    filename: win.filename,\n    pdfFileName: win.pdfFileName,\n    htmlFileName: win.htmlFileName,\n    reportId: win.reportId,\n    reportVersion: win.reportVersion,\n    classification: win.classification,\n    organization: win.organization,\n    stats: {\n      ransomwareVictims: victims.length,\n      brVictims: brVictims.length,\n      ngsocNominalHits: nominalHits.length,\n      kevAdded: kevInWindow.length,\n      cveTotal,\n      cveSeverity: sev,\n      correlatos,\n      byGroup: byGroup.slice(0, 8),\n      byCountry: byCountry.slice(0, 8),\n      bySector: bySector.slice(0, 8),\n      byDay,\n      brLines: brVictims.map(v => ({\n        victim: v.victim || v.name,\n        group: v.group,\n        sector: v.sector,\n        day: dayKey(v.discovered),\n      })),\n      kevLines: kevInWindow.slice(0, 10).map(e => ({\n        cve: e.cveId || e.cveID,\n        product: [e.vendorProject, e.product].filter(Boolean).join(' '),\n        name: e.vulnerabilityName || e.shortDescription,\n        rw: e.knownRansomwareUse || 'Unknown',\n      })),\n      criticals: criticals.map(c => ({\n        id: cveIdOf(c),\n        score: cveScoreOf(c),\n        desc: cveDescOf(c).slice(0, 140),\n      })),\n      themes,\n      abertura: 'Nas últimas 24 horas, ' + aberturaFatos.join('. ').replace(/\\s+\\./g, '.') + '.',\n    },\n  },\n}];\n"
+      },
+      "id": "69919196-a9c5-4857-b299-edaa3eed8ffb",
+      "name": "Montar Report CTI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "subject",
+              "name": "subject",
+              "value": "={{ '[' + $json.executive.riskLevel + '] Report CTI Diário — ' + $json.periodLabel }}",
+              "type": "string"
+            },
+            {
+              "id": "deliveryHint",
+              "name": "deliveryHint",
+              "value": "PDF, HTML, texto, manifesto de auditoria e recomendações priorizadas disponíveis.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "a2e03c47-3f77-4a57-91f6-62eea165ed14",
+      "name": "Saída Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $input.first().json;\nconst stats = src.stats || {};\nconst sev = stats.cveSeverity || {};\nconst periodLabel = String(src.periodLabel || '');\nconst generatedAtLabel = String(src.generatedAtLabel || src.generatedAt || '');\nconst pdfFileName = String(src.pdfFileName || ('relatorio_cti_' + (src.generatedAt || 'hoje') + '.pdf'));\n\nconst C = {\n  header: [0.498, 0.11, 0.098],      // #7F1D1D\n  headerAccent: [0.725, 0.11, 0.11], // #B91C1C\n  text: [0.059, 0.09, 0.165],        // #0F172A\n  muted: [0.278, 0.333, 0.412],      // #475569\n  soft: [0.392, 0.455, 0.545],       // #64748B\n  card: [1, 1, 1],\n  bg: [0.965, 0.973, 0.98],\n  line: [0.898, 0.906, 0.922],\n  critBg: [0.996, 0.886, 0.886],\n  crit: [0.725, 0.11, 0.11],\n  high: [0.498, 0.11, 0.098],\n  med: [0.961, 0.62, 0.043],\n  low: [0.008, 0.525, 0.78],\n  white: [1, 1, 1],\n};\n\nfunction toWinAnsiBytes(str) {\n  const out = [];\n  for (let i = 0; i < str.length; i++) {\n    let c = str.charCodeAt(i);\n    if (c === 10 || c === 13) { out.push(c); continue; }\n    if (c === 0x2192 || c === 0x2014) { // → —\n      out.push(c === 0x2192 ? 0x3E : 0x2D); // > or -\n      if (c === 0x2192) { out.push(0x20); } // space after >\n      continue;\n    }\n    if (c < 128) { out.push(c); continue; }\n    const map = {\n      0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85,\n      0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88, 0x2030: 0x89, 0x0160: 0x8A,\n      0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92,\n      0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,\n      0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C,\n      0x017E: 0x9E, 0x0178: 0x9F,\n    };\n    if (map[c] != null) out.push(map[c]);\n    else if (c >= 0xA0 && c <= 0xFF) out.push(c);\n    else out.push(0x3F);\n  }\n  return out;\n}\n\nfunction pdfEscape(str) {\n  const bytes = toWinAnsiBytes(String(str));\n  let s = '';\n  for (const b of bytes) {\n    if (b === 0x28 || b === 0x29 || b === 0x5C) s += '\\\\' + String.fromCharCode(b);\n    else if (b < 32 || b > 126) s += '\\\\' + b.toString(8).padStart(3, '0');\n    else s += String.fromCharCode(b);\n  }\n  return s;\n}\n\nfunction wrap(text, maxChars) {\n  const raw = String(text || '').replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');\n  const out = [];\n  for (const paragraph of raw.split('\\n')) {\n    if (!paragraph) { out.push(''); continue; }\n    let rest = paragraph;\n    while (rest.length > maxChars) {\n      let cut = rest.lastIndexOf(' ', maxChars);\n      if (cut < Math.floor(maxChars * 0.45)) cut = maxChars;\n      out.push(rest.slice(0, cut));\n      rest = rest.slice(cut).replace(/^\\s+/, '');\n    }\n    if (rest) out.push(rest);\n  }\n  return out;\n}\n\nfunction rgb(arr) { return arr.map(x => Number(x).toFixed(3)).join(' ') + ' rg'; }\nfunction RG(arr) { return arr.map(x => Number(x).toFixed(3)).join(' ') + ' RG'; }\n\nfunction rect(x, y, w, h, fill, stroke) {\n  let s = '';\n  if (fill) s += rgb(fill) + '\\n';\n  if (stroke) s += RG(stroke) + '\\n0.6 w\\n';\n  s += x + ' ' + y + ' ' + w + ' ' + h + ' re\\n';\n  if (fill && stroke) s += 'B\\n';\n  else if (fill) s += 'f\\n';\n  else s += 'S\\n';\n  return s;\n}\n\nfunction textAt(x, y, str, font, size) {\n  return 'BT /' + font + ' ' + size + ' Tf ' + x + ' ' + y + ' Td (' + pdfEscape(str) + ') Tj ET\\n';\n}\n\nconst pageW = 595;\nconst pageH = 842;\nconst margin = 36;\nconst contentW = pageW - margin * 2;\n\nconst pagesContent = [];\nlet ops = '';\nlet y = pageH - 36;\n\nfunction newPage() {\n  if (ops) pagesContent.push(ops);\n  ops = '';\n  // background\n  ops += rect(0, 0, pageW, pageH, C.bg, null);\n  y = pageH - 36;\n}\n\nfunction ensure(space) {\n  if (y - space < 52) {\n    drawFooter();\n    newPage();\n    drawMiniHeader();\n  }\n}\n\nfunction drawFooter() {\n  ops += rect(0, 0, pageW, 34, [0.933, 0.945, 0.957], null);\n  ops += textAt(margin, 14, 'Gerado em ' + generatedAtLabel + '  •  Recon5  •  Classificação: Confidencial  •  recon5@netfive.com.br', 'F1', 8);\n}\n\nfunction drawMiniHeader() {\n  ops += rect(0, pageH - 28, pageW, 28, C.header, null);\n  ops += rgb(C.white) + '\\n';\n  ops += textAt(margin, pageH - 18, 'Relatório CTI Diário — Netfive / Recon5', 'F2', 9);\n  y = pageH - 48;\n}\n\nfunction drawMainHeader() {\n  ops += rect(0, pageH - 92, pageW, 92, C.header, null);\n  // title pill\n  ops += rect(margin, pageH - 58, 250, 28, C.white, null);\n  ops += rgb(C.text) + '\\n';\n  ops += textAt(margin + 10, pageH - 48, 'Relatório CTI Diário', 'F2', 14);\n  // period pill\n  const pill = 'Período: ' + periodLabel.replace(/→/g, '>').slice(0, 52);\n  ops += rect(pageW - margin - 250, pageH - 54, 250, 22, C.white, null);\n  ops += rgb(C.header) + '\\n';\n  ops += textAt(pageW - margin - 240, pageH - 46, pill, 'F2', 8);\n  ops += rgb(C.white) + '\\n';\n  ops += textAt(margin, pageH - 78, 'Fonte: Recon5 (ransomware.live / CISA KEV / NVD)', 'F1', 9);\n  y = pageH - 112;\n}\n\nfunction sectionTitle(title) {\n  ensure(28);\n  ops += rgb(C.soft) + '\\n';\n  ops += textAt(margin, y, String(title).toUpperCase(), 'F2', 10);\n  y -= 6;\n  ops += rect(margin, y, contentW, 1.2, C.line, null);\n  y -= 16;\n}\n\nfunction bodyText(text, size = 9, color = C.muted, max = 98) {\n  const lines = wrap(text, max);\n  for (const line of lines) {\n    ensure(14);\n    ops += rgb(color) + '\\n';\n    ops += textAt(margin, y, line, 'F1', size);\n    y -= 12;\n  }\n}\n\nfunction bullet(text) {\n  const lines = wrap(text, 94);\n  for (let i = 0; i < lines.length; i++) {\n    ensure(14);\n    ops += rgb(C.muted) + '\\n';\n    ops += textAt(margin + (i === 0 ? 0 : 10), y, (i === 0 ? '• ' : '  ') + lines[i], 'F1', 9);\n    y -= 12;\n  }\n}\n\nfunction metricCards() {\n  ensure(78);\n  const cards = [\n    { label: 'VÍTIMAS RANSOMWARE', value: String(stats.ransomwareVictims ?? 0), color: C.headerAccent },\n    { label: 'VÍTIMAS BR', value: String(stats.brVictims ?? 0), color: C.crit },\n    { label: 'KEV NOVAS', value: String(stats.kevAdded ?? 0), color: C.med },\n    { label: 'CVEs NVD', value: String(stats.cveTotal ?? 0), color: C.low },\n  ];\n  const gap = 10;\n  const w = (contentW - gap * 3) / 4;\n  const h = 62;\n  const baseY = y - h;\n  cards.forEach((c, i) => {\n    const x = margin + i * (w + gap);\n    ops += rect(x, baseY, w, h, C.card, C.line);\n    ops += rgb(C.soft) + '\\n';\n    ops += textAt(x + 8, baseY + 46, c.label, 'F2', 7);\n    ops += rgb(c.color) + '\\n';\n    ops += textAt(x + 8, baseY + 18, c.value, 'F2', 18);\n  });\n  y = baseY - 18;\n}\n\nfunction severityCard() {\n  ensure(110);\n  const boxH = 100;\n  const boxY = y - boxH;\n  ops += rect(margin, boxY, contentW, boxH, C.card, C.line);\n  ops += rgb(C.soft) + '\\n';\n  ops += textAt(margin + 12, boxY + boxH - 16, 'CVEs POR SEVERIDADE (CVSSv3)', 'F2', 9);\n\n  const rows = [\n    { label: 'Crítico', q: sev.CRITICAL || 0, tag: C.critBg, tc: C.crit, bar: C.crit },\n    { label: 'Alto', q: sev.HIGH || 0, tag: C.header, tc: C.white, bar: C.header },\n    { label: 'Médio', q: sev.MEDIUM || 0, tag: [0.996, 0.953, 0.78], tc: [0.573, 0.251, 0.055], bar: C.med },\n    { label: 'Baixo', q: sev.LOW || 0, tag: [0.859, 0.918, 0.996], tc: C.low, bar: C.low },\n  ];\n  const maxQ = Math.max(1, ...rows.map(r => r.q));\n  rows.forEach((r, i) => {\n    const ry = boxY + boxH - 34 - i * 16;\n    ops += rect(margin + 12, ry - 2, 52, 12, r.tag, null);\n    ops += rgb(r.tc) + '\\n';\n    ops += textAt(margin + 16, ry + 1, r.label, 'F2', 8);\n    ops += rgb(C.text) + '\\n';\n    ops += textAt(margin + 72, ry + 1, String(r.q), 'F2', 9);\n    const bw = Math.max(4, Math.round((contentW - 140) * (r.q / maxQ)));\n    ops += rect(margin + 100, ry, bw, 8, r.bar, null);\n  });\n  y = boxY - 16;\n}\n\n// Build pages\nnewPage();\ndrawMainHeader();\nmetricCards();\nsectionTitle('Postura executiva');\nbodyText('Risco: ' + (stats.riskAssessment?.riskLevel || 'N/A') + ' — ' +\n  (stats.riskAssessment?.riskScore ?? 0) + '/100 | Confiança: ' +\n  (stats.riskAssessment?.analyticalConfidence || 'N/A'), 11, C.text);\nbodyText('Decisão recomendada: ' + (stats.riskAssessment?.decision || 'Monitoramento'), 9, C.muted);\ny -= 6;\nseverityCard();\n\nsectionTitle('Abertura');\nbodyText('Bom dia, pessoal!', 11, C.text, 90);\ny -= 4;\nbodyText(stats.abertura || '', 9, C.muted, 98);\ny -= 6;\nbodyText('O monitoramento contemplou a análise de possíveis vazamentos de dados, menções aos clientes e aos seus setores, vulnerabilidades críticas (CVEs) com exploração ativa, novas vítimas divulgadas por grupos de ransomware, bem como campanhas maliciosas e demais ameaças relevantes ao cenário de segurança cibernética.', 9, C.muted, 98);\ny -= 4;\nbodyText('Seguimos com o monitoramento contínuo e informaremos prontamente caso sejam identificados eventos que demandem atenção.', 9, C.muted, 98);\n\nsectionTitle('1. Ransomware (vítimas em leak sites)');\nbodyText('Na janela, o Recon5 registrou ' + (stats.ransomwareVictims || 0) + ' novas vítimas em leak sites.', 9, C.text);\ny -= 4;\nbodyText('Volume por dia:', 9, C.text);\n(stats.byDay || []).slice(0, 10).forEach(([k, v]) => bullet(k + ': ' + v));\ny -= 4;\nbodyText('Grupos mais ativos:', 9, C.text);\n(stats.byGroup || []).slice(0, 10).forEach(([k, v]) => bullet(k + ': ' + v));\ny -= 4;\nbodyText('Países:', 9, C.text);\n(stats.byCountry || []).slice(0, 12).forEach(([k, v]) => bullet(k + ': ' + v));\ny -= 4;\nbodyText('Setores:', 9, C.text);\n(stats.bySector || []).slice(0, 10).forEach(([k, v]) => bullet(k + ': ' + v));\ny -= 4;\nbodyText('Vítimas no Brasil:', 9, C.text);\nif ((stats.brLines || []).length) {\n  stats.brLines.forEach(b => bullet((b.victim || 'N/A') + ' | ' + (b.group || 'N/A') + ' | ' + (b.sector || 'N/A') + ' | ' + (b.day || '')));\n} else {\n  bullet('Nenhuma no período');\n}\n\nsectionTitle('2. CISA KEV');\nif ((stats.kevAdded || 0) > 0) {\n  bodyText('Foram adicionadas ' + stats.kevAdded + ' vulnerabilidades ao catálogo CISA KEV na janela:', 9, C.text);\n  (stats.kevLines || []).forEach(k => bullet((k.cve || 'N/A') + ' | ' + (k.product || 'N/A') + ' | ' + String(k.name || '').slice(0, 100) + ' | Ransomware: ' + (k.rw || 'Unknown')));\n} else {\n  bodyText('Não houve adições ao catálogo CISA KEV na janela.', 9, C.text);\n}\n\nsectionTitle('3. Catálogo de CVEs (NVD)');\nbodyText('No catálogo NVD foram publicadas ' + (stats.cveTotal || 0) + ' vulnerabilidades na janela.', 9, C.text);\ny -= 4;\nbodyText('Temas predominantes (Critical + High):', 9, C.text);\n(stats.themes || []).forEach(t => bullet(t));\ny -= 4;\nbodyText('Destaques Critical:', 9, C.text);\nif ((stats.criticals || []).length) {\n  stats.criticals.forEach(c => bullet((c.id || 'N/A') + (c.score !== '' && c.score != null ? ' | ' + c.score : '') + ' | ' + String(c.desc || '').slice(0, 110)));\n} else {\n  bullet('Nenhum Critical na amostra');\n}\n\nsectionTitle('4. Ações priorizadas e qualidade');\n(stats.recommendations || []).forEach(r => bullet('[' + r.priority + '] ' + r.action + ' Responsável: ' + r.owner));\ny -= 4;\nbodyText('Qualidade dos dados: ' + (stats.dataQuality?.status || 'N/A') + ' — ' +\n  (stats.dataQuality?.completenessNote || ''), 9, C.text);\n(stats.dataQuality?.issues || []).forEach(i => bullet('Ressalva: ' + i));\ndrawFooter();\npagesContent.push(ops);\n\n// Assemble PDF\nconst objects = [];\nconst addObj = (body) => { objects.push(body); return objects.length; };\nconst fontId = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');\nconst fontBoldId = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');\n\nconst contentIds = [];\nconst pageIds = [];\nfor (let p = 0; p < pagesContent.length; p++) {\n  let stream = pagesContent[p];\n  stream = stream.replace(/\\/F1 /g, '/' + 'F1' + ' ').replace(/\\/F2 /g, '/' + 'F2' + ' ');\n  // fonts aliases F1/F2 in content already; Resources maps F1/F2\n  const contentId = addObj('<< /Length ' + Buffer.byteLength(stream, 'latin1') + ' >>\\nstream\\n' + stream + '\\nendstream');\n  contentIds.push(contentId);\n  pageIds.push(null);\n}\n\nconst kids = [];\nfor (let p = 0; p < pagesContent.length; p++) {\n  const pageId = addObj(\n    '<< /Type /Page /Parent PAGES_ID 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ' +\n      fontId + ' 0 R /F2 ' + fontBoldId + ' 0 R >> >> /Contents ' + contentIds[p] + ' 0 R >>'\n  );\n  pageIds[p] = pageId;\n  kids.push(pageId + ' 0 R');\n}\nconst pagesId = addObj('<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + pagesContent.length + ' >>');\nfor (let i = 0; i < objects.length; i++) objects[i] = objects[i].replace(/PAGES_ID/g, String(pagesId));\nconst catalogId = addObj('<< /Type /Catalog /Pages ' + pagesId + ' 0 R >>');\n\nlet pdf = '%PDF-1.4\\n';\nconst offsets = [0];\nfor (let i = 0; i < objects.length; i++) {\n  offsets.push(Buffer.byteLength(pdf, 'latin1'));\n  pdf += (i + 1) + ' 0 obj\\n' + objects[i] + '\\nendobj\\n';\n}\nconst xrefPos = Buffer.byteLength(pdf, 'latin1');\npdf += 'xref\\n0 ' + (objects.length + 1) + '\\n';\npdf += '0000000000 65535 f \\n';\nfor (let i = 1; i <= objects.length; i++) {\n  pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \\n';\n}\npdf += 'trailer\\n<< /Size ' + (objects.length + 1) + ' /Root ' + catalogId + ' 0 R >>\\n';\npdf += 'startxref\\n' + xrefPos + '\\n%%EOF';\n\nconst pdfBase64 = Buffer.from(pdf, 'latin1').toString('base64');\n\nreturn [{\n  json: {\n    ...src,\n    pdfFileName,\n    pdfBase64,\n    pdfPages: pagesContent.length,\n  },\n}];\n"
+      },
+      "id": "9b28a3aa-8bb0-4afb-9ae8-042d9129d51c",
+      "name": "Montar PDF Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "pdfBase64",
+        "options": {
+          "fileName": "={{ $json.pdfFileName }}",
+          "mimeType": "application/pdf"
+        }
+      },
+      "id": "5e4228ee-9c25-4a99-9d38-63d6474a4d58",
+      "name": "Gerar Arquivo PDF",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2896,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "channelMessage",
+        "teamId": "={{ 'CONFIGURE_TEAM_ID' }}",
+        "channelId": "={{ 'CONFIGURE_CHANNEL_ID' }}",
+        "message": "={{ $json.subject + '\\n\\nRisco: ' + $json.executive.riskLevel + ' (' + $json.executive.riskScore + '/100)\\nDecisão: ' + $json.executive.decision + '\\n\\nRelatório PDF gerado no node anterior.' }}",
+        "options": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "5dd16ea2-b52e-44c6-9080-4cb48c4db463",
+      "name": "Enviar Teams (futuro)",
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        0
+      ],
+      "webhookId": "e4cb5aa1-c9b0-45ee-b2b1-da1aaac00bae",
+      "disabled": true,
+      "notes": "Desabilitado por segurança. Configure credencial OAuth, Team e Channel; valide a política de classificação antes de habilitar."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lista NGSOC para cruzamento do report CTI.\n// O endpoint GET /companies exige permissão de admin (cti_reports retorna 403).\nconst companies = [\n  { name: 'Auxiliadora Predial (NGSOC)', segment: 'Imobiliário' },\n  { name: 'Bertolini (NGSOC)', segment: 'Armazenagem' },\n  { name: 'Cargolift (NGSOC)', segment: 'Transporte/Logística' },\n  { name: 'Fitesa (NGSOC)', segment: 'Indústria' },\n  { name: 'Fruki (NGSOC)', segment: 'Alimentos/Indústria' },\n  { name: 'Hertzfarma (NGSOC)', segment: 'Indústria/Farmacêutico' },\n  { name: 'Killing (NGSOC)', segment: 'Indústria' },\n  { name: 'Piccadilly (NGSOC)', segment: 'Varejo' },\n  { name: 'Santa Clara (NGSOC)', segment: 'Alimentos' },\n  { name: 'SLC Agrícola (NGSOC)', segment: 'Agronegócio' },\n  { name: 'Taurus Armas (NGSOC)', segment: 'Indústria' },\n  { name: 'Unimed Vale Rio dos Sinos (NGSOC)', segment: 'Saúde' },\n  { name: 'Vipal (NGSOC)', segment: 'Indústria' },\n];\n\nreturn [{ json: { companies, items: companies, source: 'ngsoc-static-list' } }];"
+      },
+      "id": "8f22a5dc-9bdd-4a99-828e-4376f4daaffb",
+      "name": "Clientes NGSOC",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/nvd/entries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "severity",
+              "value": "CRITICAL"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            },
+            {
+              "name": "publishedFrom",
+              "value": "={{ $('Calcular Janela').item.json.publishedFrom }}"
+            },
+            {
+              "name": "publishedTo",
+              "value": "={{ $('Calcular Janela').item.json.publishedTo }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($('Login Recon5').item.json.token || $('Login Recon5').item.json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "494d81f2-2f32-40e9-b819-16830eff3b9f",
+      "name": "GET CVE Sev Critical",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1616,
+        128
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/nvd/entries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "severity",
+              "value": "HIGH"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            },
+            {
+              "name": "publishedFrom",
+              "value": "={{ $('Calcular Janela').item.json.publishedFrom }}"
+            },
+            {
+              "name": "publishedTo",
+              "value": "={{ $('Calcular Janela').item.json.publishedTo }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($('Login Recon5').item.json.token || $('Login Recon5').item.json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "14b1cf22-7907-43e3-bf78-74ffc3808cb1",
+      "name": "GET CVE Sev High",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1728,
+        128
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/nvd/entries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "severity",
+              "value": "MEDIUM"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            },
+            {
+              "name": "publishedFrom",
+              "value": "={{ $('Calcular Janela').item.json.publishedFrom }}"
+            },
+            {
+              "name": "publishedTo",
+              "value": "={{ $('Calcular Janela').item.json.publishedTo }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($('Login Recon5').item.json.token || $('Login Recon5').item.json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "6f9aeb49-716c-492a-a060-929126436266",
+      "name": "GET CVE Sev Medium",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1856,
+        128
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Calcular Janela').item.json.baseUrl }}/nvd/entries",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "severity",
+              "value": "LOW"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            },
+            {
+              "name": "publishedFrom",
+              "value": "={{ $('Calcular Janela').item.json.publishedFrom }}"
+            },
+            {
+              "name": "publishedTo",
+              "value": "={{ $('Calcular Janela').item.json.publishedTo }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($('Login Recon5').item.json.token || $('Login Recon5').item.json.accessToken) }}"
+            },
+            {
+              "name": "x-tenant-id",
+              "value": "={{ $('Calcular Janela').item.json.tenantId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "2f44234b-1e3b-4879-afab-6f4826d3a58d",
+      "name": "GET CVE Sev Low",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1968,
+        128
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Timeout definido e até 3 tentativas para falhas transitórias."
+    },
+    {
+      "parameters": {},
+      "id": "2f61e28e-ba2b-483b-bb94-1735a95c7911",
+      "name": "Executar Manualmente",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $input.first().json;\nconst required = ['baseUrl', 'username', 'recon5Password', 'tenantId'];\nconst missing = required.filter(k => cfg[k] === undefined || cfg[k] === null || String(cfg[k]).trim() === '');\nif (missing.length) {\n  throw new Error('Configuração CTI incompleta. Variáveis ausentes: ' + missing.join(', ') +\n    '. Configure-as no ambiente do n8n; nenhum segredo deve ser salvo no workflow.');\n}\nlet parsed;\ntry { parsed = new URL(String(cfg.baseUrl)); } catch {\n  throw new Error('RECON5_BASE_URL não é uma URL válida.');\n}\nif (parsed.protocol !== 'https:') throw new Error('RECON5_BASE_URL deve usar HTTPS.');\nconst cleanBaseUrl = String(cfg.baseUrl).replace(/\\/+$/, '');\nconst lookbackHours = Math.min(168, Math.max(1, Number(cfg.lookbackHours || 24)));\nconst runId = 'cti-' + $now.toUTC().toFormat(\"yyyyMMdd'T'HHmmss'Z'\") + '-' +\n  Math.random().toString(36).slice(2, 8);\nreturn [{ json: {\n  ...cfg,\n  baseUrl: cleanBaseUrl,\n  lookbackHours,\n  ransomwareLimit: Math.min(1000, Math.max(1, Number(cfg.ransomwareLimit || 500))),\n  cveLimit: Math.min(1000, Math.max(1, Number(cfg.cveLimit || 500))),\n  runId,\n  configValidatedAt: $now.toUTC().toISO(),\n} }];"
+      },
+      "id": "ddcc1bf1-357b-4fa9-8611-55b6df6a06ca",
+      "name": "Validar Configuração Segura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ],
+      "notes": "Falha rapidamente se houver configuração ausente ou transporte inseguro."
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $input.first().json;\nconst stats = src.stats || {};\nconst sev = stats.cveSeverity || {};\nconst qualityIssues = [];\nif (!src.periodLabel) qualityIssues.push('Período de análise ausente');\nif (!Number.isFinite(Number(stats.cveTotal))) qualityIssues.push('Total de CVEs inválido');\nif (!Array.isArray(stats.byGroup)) qualityIssues.push('Agregação de grupos indisponível');\nif (!Array.isArray(stats.byCountry)) qualityIssues.push('Agregação de países indisponível');\nif ((stats.ransomwareVictims || 0) >= 500) qualityIssues.push('Ransomware atingiu o limite da consulta; revisar paginação');\nif ((stats.cveTotal || 0) >= 500) qualityIssues.push('CVEs podem exceder a página consultada; revisar paginação');\n\nlet score = 0;\nscore += Math.min(30, Number(sev.CRITICAL || 0) * 3);\nscore += Math.min(18, Number(sev.HIGH || 0) * 0.4);\nscore += Math.min(25, Number(stats.kevAdded || 0) * 8);\nscore += Math.min(15, Number(stats.brVictims || 0) * 5);\nscore += Math.min(12, Number(stats.ransomwareVictims || 0) * 0.3);\nif (Number(stats.ngsocNominalHits || 0) > 0) score = Math.max(score, 90);\nscore = Math.min(100, Math.round(score));\n\nconst level = score >= 80 ? 'CRÍTICO' : score >= 60 ? 'ALTO' : score >= 35 ? 'MODERADO' : 'BAIXO';\nconst confidence = qualityIssues.length === 0 ? 'ALTA' : qualityIssues.length <= 2 ? 'MÉDIA' : 'BAIXA';\nconst recommendations = [];\nif (Number(stats.ngsocNominalHits || 0) > 0)\n  recommendations.push({priority:'P0', action:'Validar imediatamente o possível match nominal com o cliente e acionar o playbook de incidente.', owner:'SOC/CSIRT'});\nif (Number(stats.kevAdded || 0) > 0)\n  recommendations.push({priority:'P1', action:'Cruzar os novos itens CISA KEV com inventário, exposição externa e telemetria EDR/SIEM.', owner:'Vulnerability Management'});\nif (Number(sev.CRITICAL || 0) > 0)\n  recommendations.push({priority:'P1', action:'Priorizar CVEs críticas por exposição, exploitabilidade, criticidade do ativo e controles compensatórios.', owner:'SecOps/Infra'});\nif (Number(stats.brVictims || 0) > 0)\n  recommendations.push({priority:'P2', action:'Reforçar hunting para TTPs dos grupos ativos no Brasil e revisar terceiros do mesmo setor.', owner:'Threat Hunting'});\nif ((stats.correlatos || []).length)\n  recommendations.push({priority:'P2', action:'Notificar analistas responsáveis pelos segmentos correlatos e ampliar monitoramento contextual.', owner:'CTI'});\nif (!recommendations.length)\n  recommendations.push({priority:'P3', action:'Manter monitoramento contínuo e validar mudanças relevantes na próxima janela.', owner:'CTI'});\nif (qualityIssues.length)\n  recommendations.push({priority:'P2', action:'Tratar alertas de qualidade para evitar conclusões baseadas em amostra incompleta.', owner:'CTI Engineering'});\n\nconst executive = {\n  riskScore: score,\n  riskLevel: level,\n  analyticalConfidence: confidence,\n  decision: level === 'CRÍTICO' ? 'Escalonamento imediato' :\n    level === 'ALTO' ? 'Ação prioritária no mesmo ciclo operacional' :\n    level === 'MODERADO' ? 'Triagem e acompanhamento dirigido' : 'Monitoramento de rotina',\n  topSignals: [\n    `${stats.ransomwareVictims || 0} vítima(s) de ransomware`,\n    `${stats.kevAdded || 0} nova(s) KEV`,\n    `${sev.CRITICAL || 0} CVE(s) crítica(s)`,\n    `${stats.brVictims || 0} vítima(s) no Brasil`,\n  ],\n};\nconst dataQuality = {\n  status: qualityIssues.length ? 'ATENÇÃO' : 'OK',\n  issues: qualityIssues,\n  checksPerformed: 6,\n  completenessNote: qualityIssues.length ? 'Há ressalvas que devem acompanhar a interpretação.' : 'Sem ressalvas automáticas detectadas.',\n};\nconst appendix = [\n  '', '================================================================================',\n  '4. AVALIAÇÃO EXECUTIVA DE RISCO',\n  '================================================================================', '',\n  `Score: ${score}/100 | Nível: ${level} | Confiança analítica: ${confidence}`,\n  `Decisão recomendada: ${executive.decision}`, '',\n  'Ações recomendadas:',\n  ...recommendations.map(r => `- [${r.priority}] ${r.action} Responsável: ${r.owner}`),\n  '', `Qualidade dos dados: ${dataQuality.status} — ${dataQuality.completenessNote}`,\n  ...qualityIssues.map(i => '- Ressalva: ' + i),\n].join('\\n');\nreturn [{ json: {\n  ...src,\n  reportText: String(src.reportText || '') + appendix,\n  stats: {...stats, riskAssessment: executive, recommendations, dataQuality},\n  executive,\n  dataQuality,\n  recommendations,\n} }];"
+      },
+      "id": "5ab82dab-3ead-4183-bc91-cbe7fb6320b5",
+      "name": "Avaliar Risco e Qualidade",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        0
+      ],
+      "notes": "Score explicável e determinístico. Não substitui validação humana do analista CTI."
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $input.first().json;\nconst s = src.stats || {};\nconst e = src.executive || {};\nconst sev = s.cveSeverity || {};\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst list = (items, render) => (items || []).map(render).join('') || '<li>Sem dados no período</li>';\nconst color = e.riskLevel === 'CRÍTICO' ? '#991b1b' : e.riskLevel === 'ALTO' ? '#c2410c' : e.riskLevel === 'MODERADO' ? '#a16207' : '#047857';\nconst html = `<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">\n<title>${esc(src.subject || 'Relatório CTI Diário')}</title><style>\nbody{margin:0;background:#f1f5f9;color:#0f172a;font:14px Arial,sans-serif}.wrap{max-width:1000px;margin:auto;padding:28px}\nheader{background:linear-gradient(135deg,#450a0a,#991b1b);color:#fff;padding:30px;border-radius:16px}.meta{opacity:.88}\n.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}.card,section{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px}\n.n{font-size:28px;font-weight:700}.label{font-size:11px;color:#64748b;text-transform:uppercase}.risk{border-left:8px solid ${color}}\nh2{font-size:17px;margin-top:0}li{margin:8px 0}.tag{display:inline-block;background:${color};color:#fff;padding:5px 9px;border-radius:999px;font-weight:bold}\nfooter{color:#64748b;font-size:11px;margin-top:20px}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}\n</style></head><body><div class=\"wrap\"><header><h1>Relatório CTI Diário</h1><div class=\"meta\">${esc(src.periodLabel)}<br>${esc(src.organization)} · ${esc(src.classification)} · ID ${esc(src.reportId)}</div></header>\n<div class=\"grid\"><div class=\"card\"><div class=\"label\">Ransomware</div><div class=\"n\">${s.ransomwareVictims||0}</div></div>\n<div class=\"card\"><div class=\"label\">Vítimas BR</div><div class=\"n\">${s.brVictims||0}</div></div>\n<div class=\"card\"><div class=\"label\">Novas KEV</div><div class=\"n\">${s.kevAdded||0}</div></div>\n<div class=\"card\"><div class=\"label\">CVEs críticas</div><div class=\"n\">${sev.CRITICAL||0}</div></div></div>\n<section class=\"risk\"><h2>Postura executiva</h2><span class=\"tag\">${esc(e.riskLevel)} · ${e.riskScore||0}/100</span>\n<p><b>Decisão:</b> ${esc(e.decision)}</p><p><b>Confiança analítica:</b> ${esc(e.analyticalConfidence)}</p></section>\n<section><h2>Ações priorizadas</h2><ul>${list(src.recommendations, r => `<li><b>${esc(r.priority)}</b> — ${esc(r.action)} <i>(${esc(r.owner)})</i></li>`)}</ul></section>\n<section><h2>Destaques críticos</h2><ul>${list(s.criticals, c => `<li><b>${esc(c.id)}</b> · CVSS ${esc(c.score)} — ${esc(c.desc)}</li>`)}</ul></section>\n<section><h2>Qualidade dos dados</h2><p><b>${esc(src.dataQuality?.status)}</b> — ${esc(src.dataQuality?.completenessNote)}</p>\n<ul>${list(src.dataQuality?.issues, i => `<li>${esc(i)}</li>`)}</ul></section>\n<footer>Gerado automaticamente em ${esc(src.generatedAtLabel)} · Versão ${esc(src.reportVersion)} · ${esc(src.classification)}</footer>\n</div></body></html>`;\nreturn [{json:{...src, html, htmlFileName:src.htmlFileName}, binary:{\n  htmlReport:{data:Buffer.from(html,'utf8').toString('base64'),mimeType:'text/html',fileName:src.htmlFileName}\n}}];"
+      },
+      "id": "e6bc6c05-35fa-4ef5-8b91-55cfc6c54c83",
+      "name": "Gerar Dashboard HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2448,
+        208
+      ],
+      "notes": "Saída HTML responsiva para e-mail, portal ou armazenamento documental."
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst src = item.json;\nconst audit = {\n  reportId: src.reportId,\n  reportVersion: src.reportVersion,\n  generatedAt: src.generatedAtLabel,\n  classification: src.classification,\n  status: 'SUCCESS',\n  artifacts: {\n    pdf: src.pdfFileName,\n    html: src.htmlFileName,\n    text: src.filename,\n  },\n  metrics: {\n    riskScore: src.executive?.riskScore,\n    riskLevel: src.executive?.riskLevel,\n    ransomwareVictims: src.stats?.ransomwareVictims,\n    kevAdded: src.stats?.kevAdded,\n    cveTotal: src.stats?.cveTotal,\n  },\n  qualityStatus: src.dataQuality?.status,\n};\nreturn [{json:{...src, audit}, binary:item.binary}];"
+      },
+      "id": "3e6948b7-2766-4e87-a1ce-fa98c5df9445",
+      "name": "Registrar Manifesto de Auditoria",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        0
+      ],
+      "notes": "Manifesto estruturado para rastreabilidade, observabilidade e arquivamento."
+    },
+    {
+      "parameters": {
+        "content": "## 1 · Orquestração segura\nAgendamento BRT + execução manual. Configuração via variáveis de ambiente e validação fail-fast.",
+        "height": 210,
+        "width": 600,
+        "color": 5
+      },
+      "id": "5b9dcac3-9e6b-4d74-b6ae-4d834000b324",
+      "name": "Nota — Orquestração",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 · Coleta resiliente\nAutenticação e fontes Recon5 com HTTPS, timeout e retry para falhas transitórias. Limites centralizados.",
+        "height": 190,
+        "width": 1050,
+        "color": 7
+      },
+      "id": "ca23f08d-3417-4194-ae20-6304caf3874c",
+      "name": "Nota — Coleta",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        528,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3 · Inteligência e decisão\nCorrelação NGSOC, score explicável, confiança analítica, qualidade dos dados e ações P0–P3.",
+        "height": 190,
+        "width": 920,
+        "color": 4
+      },
+      "id": "1139c19c-92ec-4441-8dfc-bf3a3ddb599e",
+      "name": "Nota — Inteligência",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4 · Entrega e governança\nPDF executivo, dashboard HTML, manifesto de auditoria e conector Teams desabilitado até configuração.",
+        "height": 190,
+        "width": 930,
+        "color": 6
+      },
+      "id": "6562d837-a5f1-4e75-84f2-e7df679fe83f",
+      "name": "Nota — Entrega",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2512,
+        -240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily 08:30 BRT": {
+      "main": [
+        [
+          {
+            "node": "Config CTI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config CTI": {
+      "main": [
+        [
+          {
+            "node": "Validar Configuração Segura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Janela": {
+      "main": [
+        [
+          {
+            "node": "Login Recon5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Recon5": {
+      "main": [
+        [
+          {
+            "node": "GET Ransomware",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Ransomware": {
+      "main": [
+        [
+          {
+            "node": "GET CISA KEV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET CISA KEV": {
+      "main": [
+        [
+          {
+            "node": "GET CVEs NVD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Report CTI": {
+      "main": [
+        [
+          {
+            "node": "Avaliar Risco e Qualidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Saída Report": {
+      "main": [
+        [
+          {
+            "node": "Montar PDF Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar PDF Report": {
+      "main": [
+        [
+          {
+            "node": "Gerar Arquivo PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar Arquivo PDF": {
+      "main": [
+        [
+          {
+            "node": "Registrar Manifesto de Auditoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clientes NGSOC": {
+      "main": [
+        [
+          {
+            "node": "Montar Report CTI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET CVEs NVD": {
+      "main": [
+        [
+          {
+            "node": "GET CVE Sev Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET CVE Sev Critical": {
+      "main": [
+        [
+          {
+            "node": "GET CVE Sev High",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET CVE Sev High": {
+      "main": [
+        [
+          {
+            "node": "GET CVE Sev Medium",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET CVE Sev Medium": {
+      "main": [
+        [
+          {
+            "node": "GET CVE Sev Low",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET CVE Sev Low": {
+      "main": [
+        [
+          {
+            "node": "Clientes NGSOC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar Manualmente": {
+      "main": [
+        [
+          {
+            "node": "Config CTI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Configuração Segura": {
+      "main": [
+        [
+          {
+            "node": "Calcular Janela",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avaliar Risco e Qualidade": {
+      "main": [
+        [
+          {
+            "node": "Saída Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gerar Dashboard HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Manifesto de Auditoria": {
+      "main": [
+        [
+          {
+            "node": "Enviar Teams (futuro)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timezone": "America/Sao_Paulo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "76fa4c4f-0d6d-467d-a786-fffefa1a07c0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "aiBuilderAssisted": true,
+    "architecture": "cti-enterprise-v2"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
