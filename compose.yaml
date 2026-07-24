@@ -1,0 +1,25 @@
+services:
+  api:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_PATH: /data/tor.db
+      READER_API_KEYS: ${READER_API_KEYS:-reader-local-key}
+      ADMIN_API_KEYS: ${ADMIN_API_KEYS:-admin-local-key}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-10}
+    volumes:
+      - tor-data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  tor-data:
