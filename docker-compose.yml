@@ -19,6 +19,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://cti:${POSTGRES_PASSWORD:-cti}@db:5432/cti
       JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
       CORS_ORIGINS: http://localhost:3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
       SHODAN_API_KEY: ${SHODAN_API_KEY:-}
       CENSYS_API_ID: ${CENSYS_API_ID:-}
       CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}

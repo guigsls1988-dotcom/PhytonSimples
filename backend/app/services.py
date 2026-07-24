@@ -1,5 +1,6 @@
 import hashlib
 import ipaddress
+import json
 import re
 from collections import Counter
 from pathlib import Path
@@ -61,6 +62,53 @@ def extract_iocs_from_pdf(path: Path) -> list[dict]:
         {"type": kind, "value": value, "confidence": 85, "method": "pdf-pattern"}
         for kind, value in sorted(findings)
     ]
+
+
+async def extract_iocs_with_ai(path: Path, settings: Settings) -> list[dict]:
+    """Combine deterministic extraction with an optional LLM analyst pass."""
+    deterministic = extract_iocs_from_pdf(path)
+    if not settings.openai_api_key:
+        return deterministic
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)[:30_000]
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                json={
+                    "model": settings.openai_model,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Extraia somente IOCs explícitos. Responda JSON no formato "
+                                '{"iocs":[{"type":"ipv4|ipv6|domain|url|email|md5|sha1|sha256",'
+                                '"value":"...","confidence":0-100}]}. Não invente dados.'
+                            ),
+                        },
+                        {"role": "user", "content": text},
+                    ],
+                },
+            )
+            response.raise_for_status()
+        payload = json.loads(response.json()["choices"][0]["message"]["content"])
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return deterministic
+    merged = {(item["type"], item["value"]): item for item in deterministic}
+    for item in payload.get("iocs", []):
+        try:
+            kind = IOCType(item["type"])
+            value = normalize_ioc(kind, str(item["value"]))
+            merged[(kind.value, value)] = {
+                "type": kind.value,
+                "value": value,
+                "confidence": max(0, min(100, int(item.get("confidence", 75)))),
+                "method": "ai",
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+    return list(merged.values())
 
 
 class EnrichmentService:

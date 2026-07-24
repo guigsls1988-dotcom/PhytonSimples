@@ -11,6 +11,7 @@ import {
   Upload,
   Users,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   BrowserRouter,
   NavLink,
@@ -105,7 +106,9 @@ function useData<T>(path: string, initial: T) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState("");
   const load = () => api<T>(path).then(setData).catch((e) => setError(e.message));
-  useEffect(load, [path]);
+  useEffect(() => {
+    void load();
+  }, [path]);
   return { data, error, load };
 }
 
@@ -120,14 +123,14 @@ function Dashboard() {
       <Header title="Visão geral" subtitle="Panorama atual da superfície de ameaças" />
       {error && <p className="error">{error}</p>}
       <section className="metrics">
-        {[
+        {([
           ["IOCs", data.counts.iocs || 0, Radio],
           ["CVEs", data.counts.cves || 0, Bug],
           ["Threat Actors", data.counts.actors || 0, Users],
           ["Campanhas", data.counts.campaigns || 0, Swords],
-        ].map(([name, count, Icon]) => (
+        ] as Array<[string, number, LucideIcon]>).map(([name, count, Icon]) => (
           <article className="metric" key={String(name)}>
-            <Icon size={22} /><span>{name as string}</span><strong>{count as number}</strong>
+            <Icon size={22} /><span>{name}</span><strong>{count}</strong>
           </article>
         ))}
       </section>

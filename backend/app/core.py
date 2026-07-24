@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     upload_dir: str = "/data/reports"
     max_upload_mb: int = 20
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4.1-mini"
     shodan_api_key: str | None = None
     censys_api_id: str | None = None
     censys_api_secret: str | None = None

@@ -45,7 +45,7 @@ from app.schemas import (
 from app.services import (
     EnrichmentService,
     calculate_risk,
-    extract_iocs_from_pdf,
+    extract_iocs_with_ai,
     hash_file,
     normalize_ioc,
 )
@@ -281,7 +281,7 @@ async def upload_report(
                 raise HTTPException(status_code=413, detail="Relatório excede o limite")
             output.write(chunk)
     try:
-        extracted = extract_iocs_from_pdf(path)
+        extracted = await extract_iocs_with_ai(path, settings)
     except Exception as exc:
         path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=f"PDF inválido: {exc}")

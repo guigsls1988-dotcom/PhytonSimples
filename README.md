@@ -7,7 +7,7 @@ enriquecer indicadores de ameaças.
 
 - CRUD e pesquisa de IOCs, CVEs, Threat Actors, campanhas e técnicas MITRE ATT&CK
 - Associação de IOCs, atores e técnicas a campanhas
-- Upload de PDF, validação, extração e normalização automática de IOCs
+- Upload de PDF, validação e extração híbrida de IOCs (parser local + IA opcional)
 - Consultas server-side em Shodan, Censys, VirusTotal, AbuseIPDB, GreyNoise e MISP
 - Dashboard, score de risco transparente e timeline auditável
 - Autenticação JWT e documentação OpenAPI/Swagger
@@ -46,6 +46,8 @@ docker-compose.yml      frontend, API e PostgreSQL
 
 Os clientes externos ficam atrás de `EnrichmentService`; credenciais nunca chegam ao
 browser. Um provedor sem chave retorna `unavailable` sem derrubar os demais resultados.
+Com `OPENAI_API_KEY`, relatórios também passam por uma análise semântica; sem a chave, o
+extrator local validado continua funcionando sem enviar o conteúdo a terceiros.
 
 ## API principal
 
