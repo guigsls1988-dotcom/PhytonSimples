@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cti
+      POSTGRES_USER: cti
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cti}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cti -d cti"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cti:${POSTGRES_PASSWORD:-cti}@db:5432/cti
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
+      CORS_ORIGINS: http://localhost:3000
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      CENSYS_API_ID: ${CENSYS_API_ID:-}
+      CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      GREYNOISE_API_KEY: ${GREYNOISE_API_KEY:-}
+      MISP_URL: ${MISP_URL:-}
+      MISP_API_KEY: ${MISP_API_KEY:-}
+    volumes:
+      - report_data:/data/reports
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  report_data:
