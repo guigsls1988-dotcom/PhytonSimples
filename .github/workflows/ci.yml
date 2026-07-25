@@ -17,7 +17,7 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements-dev.txt bandit pip-audit
-      - run: ruff check app tests
+      - run: ruff check app tests tools
       - run: pytest -q
       - run: bandit -q -r app
       - run: pip-audit -r requirements.txt

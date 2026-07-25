@@ -97,6 +97,7 @@ autenticación), 403 (rol insuficiente), 422 (IP inválida) y 503 (sin fuente ni
 
 - [Modelo STRIDE, arquitectura de agentes, memoria, prompts y mitigación extra](docs/THREAT_MODEL.md)
 - [Despliegue AWS](docs/CLOUD_DEPLOYMENT.md)
+- [Informe SAST y auditoría de dependencias](docs/SAST_REPORT.md)
 - `docs/SOLUCION_COMPLETA.pdf`: documentación separada generada desde los documentos.
 - `docs/assets/`: capturas de requests y responses reales.
 - `Dockerfile`, `compose.yaml`, pruebas automatizadas y OpenAPI interactivo.
