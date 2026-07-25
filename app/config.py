@@ -1,6 +1,6 @@
+import os
 from dataclasses import dataclass
 from functools import lru_cache
-import os
 
 
 @dataclass(frozen=True)
@@ -14,7 +14,9 @@ class Settings:
 
 
 def _keys(name: str, default: str) -> frozenset[str]:
-    return frozenset(value.strip() for value in os.getenv(name, default).split(",") if value.strip())
+    return frozenset(
+        value.strip() for value in os.getenv(name, default).split(",") if value.strip()
+    )
 
 
 @lru_cache

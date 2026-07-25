@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import UTC, datetime
 import hashlib
 import json
-from pathlib import Path
 import sqlite3
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 class Database:

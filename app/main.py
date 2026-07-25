@@ -1,9 +1,18 @@
-from contextlib import asynccontextmanager
 import hmac
 import ipaddress
+from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -81,8 +90,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> str:
         if not x_api_key:
             raise HTTPException(status_code=401, detail="Falta el header X-API-Key")
-        admin = any(hmac.compare_digest(x_api_key, key) for key in configured.admin_api_keys)
-        reader = any(hmac.compare_digest(x_api_key, key) for key in configured.reader_api_keys)
+        admin = any(
+            hmac.compare_digest(x_api_key, key) for key in configured.admin_api_keys
+        )
+        reader = any(
+            hmac.compare_digest(x_api_key, key) for key in configured.reader_api_keys
+        )
         if required_role == "admin" and not admin:
             raise HTTPException(status_code=403, detail="Se requiere el rol admin")
         if not (admin or reader):
@@ -99,7 +112,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> str:
         return authorize("admin", x_api_key)
 
-    def output(snapshot: TorSnapshot, ips: list[str], excluded_count: int = 0) -> TorListOutput:
+    def output(
+        snapshot: TorSnapshot, ips: list[str], excluded_count: int = 0
+    ) -> TorListOutput:
         return TorListOutput(
             count=len(ips),
             ips=ips,

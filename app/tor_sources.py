@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import UTC, datetime
 import ipaddress
 import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import httpx
 
@@ -61,7 +61,10 @@ class TorSourceService:
             headers={"User-Agent": "tor-ip-aggregator/1.0"},
         ) as client:
             results = await asyncio.gather(
-                *(self._fetch_source(client, name, url) for name, url in self.settings.tor_sources),
+                *(
+                    self._fetch_source(client, name, url)
+                    for name, url in self.settings.tor_sources
+                ),
                 return_exceptions=True,
             )
 
@@ -76,10 +79,12 @@ class TorSourceService:
                 sources_ok.append(name)
 
         if not sources_ok:
-            raise NoSourceAvailable("No fue posible consultar ninguna fuente de nodos Tor")
+            raise NoSourceAvailable(
+                "No fue posible consultar ninguna fuente de nodos Tor"
+            )
 
         return TorSnapshot(
-            ips=tuple(sorted(all_ips, key=ipaddress.ip_address)),
+            ips=tuple(sorted(all_ips, key=self._sort_key)),
             fetched_at=datetime.now(UTC).isoformat(),
             sources_ok=tuple(sources_ok),
             source_errors=errors,
@@ -109,6 +114,11 @@ class TorSourceService:
             if address.is_global:
                 ips.add(str(address))
         return ips
+
+    @staticmethod
+    def _sort_key(value: str) -> tuple[int, int]:
+        address = ipaddress.ip_address(value)
+        return address.version, int(address)
 
     @staticmethod
     def _safe_error(error: BaseException) -> str:
