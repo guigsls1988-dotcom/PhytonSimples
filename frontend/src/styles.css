@@ -4,7 +4,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
-button { background: #35d0ba; color: #041317; border: 0; border-radius: 7px; padding: .72rem 1rem; font-weight: 700; cursor: pointer; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; background: #35d0ba; color: #041317; border: 0; border-radius: 7px; padding: .72rem 1rem; font-weight: 700; cursor: pointer; }
 button:hover { filter: brightness(1.08); }
 input, select, textarea { width: 100%; margin-top: .35rem; color: #e8f0f7; background: #0a1727; border: 1px solid #263b51; border-radius: 7px; padding: .7rem; }
 label { color: #9fb0c3; font-size: .88rem; }
@@ -51,9 +51,28 @@ td { font-size: .88rem; max-width: 360px; overflow-wrap: anywhere; }
 .enrichment fieldset label { display: flex; align-items: center; gap: .4rem; text-transform: capitalize; }
 .enrichment input[type="checkbox"] { width: auto; margin: 0; }
 .results { white-space: pre-wrap; overflow: auto; max-height: 500px; color: #b9c8d5; }
+.notice { color: #76e5d3; background: #123632; padding: .7rem 1rem; border-radius: 7px; }
+.regional-latest { display: flex; flex-direction: column; }
+.regional-latest h2 { margin-bottom: .5rem; }
+.regional-latest a { display: grid; grid-template-columns: auto 1fr; gap: .35rem .65rem; padding: .65rem 0; color: #dce7f0; text-decoration: none; border-bottom: 1px solid #1d3043; }
+.regional-latest a small { grid-column: 2; color: #71879c; }
+.severity { display: inline-block; align-self: start; padding: .22rem .45rem; border-radius: 4px; font-family: "Space Mono"; font-size: .65rem; text-transform: uppercase; background: #263a4d; color: #b9c8d5; }
+.severity.critical { background: #4a1c2a; color: #ff8da5; }
+.severity.high { background: #4a3018; color: #ffc36f; }
+.severity.low { background: #163a38; color: #64ddc9; }
+.intel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.intel-card { margin-top: 0; display: flex; flex-direction: column; }
+.intel-card > div:first-child { display: flex; align-items: center; justify-content: space-between; }
+.intel-card .country { color: #45a3ff; font-family: "Space Mono"; font-size: .72rem; }
+.intel-card h2 { margin: 1rem 0 .6rem; line-height: 1.35; }
+.intel-card p { color: #9aafc1; line-height: 1.55; flex: 1; }
+.tags { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0 1rem; }
+.tags span { color: #83b8de; background: #102a3e; border-radius: 4px; padding: .25rem .45rem; font-size: .68rem; }
+.intel-card footer { display: flex; justify-content: space-between; align-items: center; gap: 1rem; border-top: 1px solid #1d3043; padding-top: .8rem; color: #71879c; }
+.intel-card footer a { display: inline-flex; align-items: center; gap: .3rem; color: #35d0ba; text-decoration: none; font-size: .78rem; }
 .timeline > div { position: relative; display: grid; grid-template-columns: 180px 1fr auto; gap: 1rem; padding: 1rem 0 1rem 1.5rem; border-left: 1px solid #2b4b5a; }
 .timeline .dot { position: absolute; left: -4px; top: 1.3rem; }
 .timeline time, .timeline small { color: #7890a5; }
 code { font-family: "Space Mono"; }
-@media (max-width: 900px) { .shell { display: block; } aside { position: static; width: 100%; } nav { display: grid; grid-template-columns: repeat(3, 1fr); } .content { padding: 1.25rem; } .metrics { grid-template-columns: repeat(2, 1fr); } .charts { grid-template-columns: 1fr; } .entity-form { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) { .shell { display: block; } aside { position: static; width: 100%; } nav { display: grid; grid-template-columns: repeat(3, 1fr); } .content { padding: 1.25rem; } .metrics { grid-template-columns: repeat(2, 1fr); } .charts { grid-template-columns: 1fr; } .entity-form { grid-template-columns: 1fr 1fr; } .intel-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { nav { grid-template-columns: 1fr 1fr; } .metrics { grid-template-columns: 1fr; } .entity-form, .enrichment { grid-template-columns: 1fr; } .enrichment fieldset { grid-column: auto; flex-wrap: wrap; } .upload { align-items: stretch; flex-direction: column; } }

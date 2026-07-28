@@ -18,6 +18,7 @@ from app.models import (
     EnrichmentResult,
     IOC,
     MitreTechnique,
+    RegionalIntel,
     Report,
     ThreatActor,
     TimelineEvent,
@@ -35,6 +36,7 @@ from app.schemas import (
     IOCWrite,
     LookupRequest,
     ReportRead,
+    RegionalIntelRead,
     TechniqueRead,
     TechniqueWrite,
     TimelineRead,
@@ -45,8 +47,10 @@ from app.schemas import (
 from app.services import (
     EnrichmentService,
     calculate_risk,
+    collect_latam_feeds,
     extract_iocs_with_ai,
     hash_file,
+    LATAM_FEEDS,
     normalize_ioc,
 )
 
@@ -334,6 +338,64 @@ async def lookup(payload: LookupRequest, session: Session) -> dict:
     return {"observable": payload.observable, "results": results}
 
 
+@router.get("/latam-intel", response_model=list[RegionalIntelRead])
+async def list_latam_intel(
+    session: Session,
+    country: str | None = Query(default=None, min_length=2, max_length=2),
+    severity: str | None = None,
+    search: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[RegionalIntel]:
+    query = select(RegionalIntel)
+    if country:
+        query = query.where(RegionalIntel.country_code == country.upper())
+    if severity:
+        query = query.where(RegionalIntel.severity == severity.lower())
+    if search:
+        query = query.where(
+            func.lower(RegionalIntel.title + " " + func.coalesce(RegionalIntel.summary, "")).contains(
+                search.lower()
+            )
+        )
+    result = await session.scalars(
+        query.order_by(RegionalIntel.published_at.desc()).limit(limit)
+    )
+    return list(result)
+
+
+@router.get("/latam-intel/sources")
+async def latam_sources() -> list[dict]:
+    return [
+        {
+            "name": source["name"],
+            "country_code": source["country_code"],
+            "country_name": source["country_name"],
+            "homepage": source["homepage"],
+        }
+        for source in LATAM_FEEDS
+    ]
+
+
+@router.post("/latam-intel/sync")
+async def sync_latam_intel(session: Session) -> dict:
+    items, statuses = await collect_latam_feeds()
+    created = 0
+    updated = 0
+    for item in items:
+        entity = await session.scalar(
+            select(RegionalIntel).where(RegionalIntel.source_url == item["source_url"])
+        )
+        if entity:
+            for key, value in item.items():
+                setattr(entity, key, value)
+            updated += 1
+        else:
+            session.add(RegionalIntel(**item))
+            created += 1
+    await session.commit()
+    return {"created": created, "updated": updated, "sources": statuses}
+
+
 @router.get("/timeline", response_model=list[TimelineRead])
 async def timeline(
     session: Session, limit: int = Query(default=100, ge=1, le=500)
@@ -359,6 +421,21 @@ async def dashboard(session: Session) -> dict:
         await session.execute(select(IOC.severity, func.count()).group_by(IOC.severity))
     ).all()
     type_rows = (await session.execute(select(IOC.type, func.count()).group_by(IOC.type))).all()
+    country_rows = (
+        await session.execute(
+            select(RegionalIntel.country_code, func.count()).group_by(
+                RegionalIntel.country_code
+            )
+        )
+    ).all()
+    latam_severity_rows = (
+        await session.execute(
+            select(RegionalIntel.severity, func.count()).group_by(RegionalIntel.severity)
+        )
+    ).all()
+    latam_recent = await session.scalars(
+        select(RegionalIntel).order_by(RegionalIntel.published_at.desc()).limit(6)
+    )
     recent = await session.scalars(
         select(TimelineEvent).order_by(TimelineEvent.occurred_at.desc()).limit(8)
     )
@@ -366,6 +443,23 @@ async def dashboard(session: Session) -> dict:
         "counts": counts,
         "severity": {key: value for key, value in severity_rows},
         "ioc_types": {key: value for key, value in type_rows},
+        "latam": {
+            "total": await session.scalar(select(func.count()).select_from(RegionalIntel)),
+            "countries": {key: value for key, value in country_rows},
+            "severity": {key: value for key, value in latam_severity_rows},
+            "recent": [
+                {
+                    "id": str(item.id),
+                    "title": item.title,
+                    "country_code": item.country_code,
+                    "severity": item.severity,
+                    "source_name": item.source_name,
+                    "source_url": item.source_url,
+                    "published_at": item.published_at,
+                }
+                for item in latam_recent
+            ],
+        },
         "recent_events": [
             {
                 "id": str(item.id),

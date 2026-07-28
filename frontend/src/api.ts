@@ -26,6 +26,26 @@ export type DashboardData = {
     event_type: string;
     occurred_at: string;
   }>;
+  latam: {
+    total: number;
+    countries: Record<string, number>;
+    severity: Record<string, number>;
+    recent: RegionalIntel[];
+  };
 };
 
 export type Entity = Record<string, unknown> & { id: string };
+
+export type RegionalIntel = {
+  id: string;
+  title: string;
+  summary: string | null;
+  source_name: string;
+  source_url: string;
+  country_code: string;
+  country_name: string;
+  severity: string;
+  sectors: string[];
+  tags: string[];
+  published_at: string;
+};

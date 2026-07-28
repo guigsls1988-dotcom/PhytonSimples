@@ -1,7 +1,7 @@
 # Palmer CTI Investigate
 
 Plataforma web de Cyber Threat Intelligence para cadastrar, relacionar, pesquisar e
-enriquecer indicadores de ameaças.
+enriquecer indicadores de ameaças, com foco operacional na América Latina.
 
 ## Recursos
 
@@ -11,6 +11,8 @@ enriquecer indicadores de ameaças.
 - Consultas server-side em Shodan, Censys, VirusTotal, AbuseIPDB, GreyNoise e MISP
 - Dashboard, score de risco transparente e timeline auditável
 - Interface operacional sem login e documentação OpenAPI/Swagger
+- Feed regional consolidado de CSIRTs LATAM, classificado por país, severidade e setor
+- Sincronização resiliente com fontes oficiais de Brasil, Colômbia, Panamá, Paraguai e Argentina
 - API FastAPI assíncrona, PostgreSQL, SQLAlchemy 2 e Repository/Unit of Work
 - Interface React + TypeScript, Docker Compose e testes automatizados
 
@@ -61,7 +63,19 @@ extrator local validado continua funcionando sem enviar o conteúdo a terceiros.
 | MITRE | `/api/v1/mitre-techniques` |
 | PDFs | `/api/v1/reports` |
 | Enriquecimento | `/api/v1/lookups` |
+| Inteligência LATAM | `/api/v1/latam-intel`, `/latam-intel/sync`, `/latam-intel/sources` |
 | Analytics | `/api/v1/dashboard`, `/timeline` |
+
+## Inteligência LATAM
+
+A página `Inteligência LATAM` consolida avisos publicados por CSIRTs oficiais. Clique
+em `Sincronizar fontes` para coletar as publicações. Falhas em uma fonte não interrompem
+as demais. Cada item preserva a URL oficial e recebe classificação automática de
+severidade, CVEs, país e setores afetados.
+
+Feeds restritos, como CERT.br e comunidades MISP, exigem credenciais e acordos próprios.
+O CERT.br disponibiliza feeds a CSIRTs nacionais e proprietários de ASN mediante
+solicitação; suas credenciais podem ser integradas pelo adaptador MISP existente.
 
 ## Testes locais
 

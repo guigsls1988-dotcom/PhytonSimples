@@ -1,10 +1,14 @@
 import hashlib
+import html
 import ipaddress
 import json
 import re
 from collections import Counter
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+from xml.etree import ElementTree
 
 import httpx
 from pypdf import PdfReader
@@ -23,6 +27,53 @@ PATTERNS = {
     IOCType.sha1: re.compile(r"(?<![a-fA-F0-9])[a-fA-F0-9]{40}(?![a-fA-F0-9])"),
     IOCType.sha256: re.compile(r"(?<![a-fA-F0-9])[a-fA-F0-9]{64}(?![a-fA-F0-9])"),
 }
+
+LATAM_FEEDS = (
+    {
+        "name": "CSIRT Panamá",
+        "country_code": "PA",
+        "country_name": "Panamá",
+        "url": "https://cert.pa/?tag=alertas",
+        "homepage": "https://cert.pa/",
+        "format": "html",
+        "link_pattern": r"\?p=\d+",
+    },
+    {
+        "name": "CERT-PY",
+        "country_code": "PY",
+        "country_name": "Paraguai",
+        "url": "https://www.cert.gov.py/feed/",
+        "homepage": "https://www.cert.gov.py/",
+        "format": "feed",
+    },
+    {
+        "name": "CSIRT Universidad Nacional de Córdoba",
+        "country_code": "AR",
+        "country_name": "Argentina",
+        "url": "https://csirt.unc.edu.ar/noticias/",
+        "homepage": "https://csirt.unc.edu.ar/noticias/",
+        "format": "html",
+        "link_pattern": r"/csirt_noticias/",
+    },
+    {
+        "name": "CTIR Gov",
+        "country_code": "BR",
+        "country_name": "Brasil",
+        "url": "https://www.gov.br/ctir/pt-br/assuntos/alertas-e-recomendacoes/recomendacoes/2026",
+        "homepage": "https://www.gov.br/ctir/pt-br/",
+        "format": "html",
+        "link_pattern": r"/alertas-e-recomendacoes/(?:alertas|recomendacoes)/2026/",
+    },
+    {
+        "name": "ColCERT",
+        "country_code": "CO",
+        "country_name": "Colômbia",
+        "url": "https://www.colcert.gov.co/800/w3-propertyvalue-412601.html",
+        "homepage": "https://www.colcert.gov.co/",
+        "format": "html",
+        "link_pattern": r"(?:w3-article-\d+\.html|articles-[^\"']+\.pdf)",
+    },
+)
 
 
 def normalize_ioc(ioc_type: IOCType | str, value: str) -> str:
@@ -204,3 +255,156 @@ def hash_file(path: Path) -> str:
 
 def severity_counts(values: list[str]) -> dict[str, int]:
     return dict(Counter(values))
+
+
+async def collect_latam_feeds() -> tuple[list[dict], list[dict]]:
+    """Collect official LATAM CSIRT RSS/Atom feeds with partial-failure isolation."""
+    items: list[dict] = []
+    statuses: list[dict] = []
+    async with httpx.AsyncClient(
+        timeout=20,
+        follow_redirects=True,
+        headers={"User-Agent": "Palmer-CTI-Investigate/1.0"},
+    ) as client:
+        for source in LATAM_FEEDS:
+            try:
+                response = await client.get(source["url"])
+                response.raise_for_status()
+                parsed = (
+                    _parse_html_listing(response.text, source)
+                    if source["format"] == "html"
+                    else _parse_feed(response.content, source)
+                )
+                items.extend(parsed)
+                statuses.append(
+                    {"source": source["name"], "status": "ok", "items": len(parsed)}
+                )
+            except (httpx.HTTPError, ElementTree.ParseError, ValueError) as exc:
+                statuses.append(
+                    {"source": source["name"], "status": "error", "error": str(exc)}
+                )
+    return items, statuses
+
+
+def _parse_feed(content: bytes, source: dict) -> list[dict]:
+    root = ElementTree.fromstring(content)
+    entries = root.findall(".//item")
+    atom = False
+    if not entries:
+        entries = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+        atom = True
+    parsed: list[dict] = []
+    for entry in entries[:50]:
+        if atom:
+            title = _xml_text(entry, "{http://www.w3.org/2005/Atom}title")
+            link_node = entry.find("{http://www.w3.org/2005/Atom}link")
+            link = link_node.get("href", "") if link_node is not None else ""
+            summary = _xml_text(entry, "{http://www.w3.org/2005/Atom}summary")
+            published = _xml_text(entry, "{http://www.w3.org/2005/Atom}updated")
+        else:
+            title = _xml_text(entry, "title")
+            link = _xml_text(entry, "link")
+            summary = _xml_text(entry, "description")
+            published = _xml_text(entry, "pubDate")
+        if not title or not link:
+            continue
+        clean_summary = _clean_html(summary)
+        combined = f"{title} {clean_summary}"
+        parsed.append(
+            {
+                "title": html.unescape(title).strip()[:500],
+                "summary": clean_summary[:4000] or None,
+                "source_name": source["name"],
+                "source_url": link[:2048],
+                "country_code": source["country_code"],
+                "country_name": source["country_name"],
+                "severity": _infer_severity(combined),
+                "sectors": _infer_sectors(combined),
+                "tags": sorted(set(re.findall(r"CVE-\d{4}-\d{4,}", combined, re.I))),
+                "published_at": _parse_feed_date(published),
+            }
+        )
+    return parsed
+
+
+def _parse_html_listing(content: str, source: dict) -> list[dict]:
+    """Extract alert links from official sites that do not publish a valid feed."""
+    parsed: list[dict] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        re.I | re.S,
+    )
+    for link, raw_title in pattern.findall(content):
+        title = _clean_html(raw_title)
+        link = urljoin(source["homepage"], link)
+        if (
+            not re.search(source["link_pattern"], link)
+            or link in seen
+            or len(title) < 18
+        ):
+            continue
+        seen.add(link)
+        parsed.append(
+            {
+                "title": title[:500],
+                "summary": None,
+                "source_name": source["name"],
+                "source_url": link[:2048],
+                "country_code": source["country_code"],
+                "country_name": source["country_name"],
+                "severity": _infer_severity(title),
+                "sectors": _infer_sectors(title),
+                "tags": sorted(set(re.findall(r"CVE-\d{4}-\d{4,}", title, re.I))),
+                "published_at": datetime.now(timezone.utc),
+            }
+        )
+        if len(parsed) == 50:
+            break
+    return parsed
+
+
+def _xml_text(element: ElementTree.Element, name: str) -> str:
+    node = element.find(name)
+    return "".join(node.itertext()).strip() if node is not None else ""
+
+
+def _clean_html(value: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", value))).strip()
+
+
+def _parse_feed_date(value: str) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.now(timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _infer_severity(text: str) -> str:
+    lowered = text.lower()
+    if any(word in lowered for word in ("crítica", "critica", "critical", "zero-day", "0-day")):
+        return "critical"
+    if any(word in lowered for word in ("alta", "high", "ransomware", "explotada", "explorada")):
+        return "high"
+    if any(word in lowered for word in ("baja", "baixa", "low")):
+        return "low"
+    return "medium"
+
+
+def _infer_sectors(text: str) -> list[str]:
+    keywords = {
+        "financeiro": ("banco", "bank", "financ", "fintech"),
+        "governo": ("gobierno", "governo", "government", "municipal"),
+        "saúde": ("salud", "saúde", "hospital", "health"),
+        "energia": ("energía", "energia", "power", "oil", "petróleo"),
+        "telecom": ("telecom", "internet provider", "isp"),
+        "varejo": ("retail", "varejo", "comercio", "comércio"),
+    }
+    lowered = text.lower()
+    return [sector for sector, terms in keywords.items() if any(term in lowered for term in terms)]

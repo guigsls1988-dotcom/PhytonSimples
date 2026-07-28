@@ -4,7 +4,10 @@ import {
   Bug,
   FileSearch,
   Gauge,
+  Globe2,
+  ExternalLink,
   Radio,
+  RefreshCw,
   ShieldAlert,
   Swords,
   Upload,
@@ -24,12 +27,13 @@ import {
   YAxis,
 } from "recharts";
 
-import { api, DashboardData, Entity } from "./api";
+import { api, DashboardData, Entity, RegionalIntel } from "./api";
 
 const COLORS = ["#35d0ba", "#f5b942", "#ff6b6b", "#7c83fd", "#45a3ff"];
 
 const links = [
   ["/", "Dashboard", Gauge],
+  ["/latam", "Inteligência LATAM", Globe2],
   ["/iocs", "IOCs", Radio],
   ["/cves", "CVEs", Bug],
   ["/threat-actors", "Threat Actors", Users],
@@ -70,10 +74,15 @@ function useData<T>(path: string, initial: T) {
 
 function Dashboard() {
   const { data, error } = useData<DashboardData>("/dashboard", {
-    counts: {}, severity: {}, ioc_types: {}, recent_events: [],
+    counts: {},
+    severity: {},
+    ioc_types: {},
+    recent_events: [],
+    latam: { total: 0, countries: {}, severity: {}, recent: [] },
   });
   const severity = Object.entries(data.severity).map(([name, value]) => ({ name, value }));
   const types = Object.entries(data.ioc_types).map(([name, value]) => ({ name, value }));
+  const countries = Object.entries(data.latam.countries).map(([name, value]) => ({ name, value }));
   return (
     <>
       <Header title="Visão geral" subtitle="Panorama atual da superfície de ameaças" />
@@ -84,11 +93,25 @@ function Dashboard() {
           ["CVEs", data.counts.cves || 0, Bug],
           ["Threat Actors", data.counts.actors || 0, Users],
           ["Campanhas", data.counts.campaigns || 0, Swords],
+          ["Alertas LATAM", data.latam.total || 0, Globe2],
         ] as Array<[string, number, LucideIcon]>).map(([name, count, Icon]) => (
           <article className="metric" key={String(name)}>
             <Icon size={22} /><span>{name}</span><strong>{count}</strong>
           </article>
         ))}
+      </section>
+      <section className="charts">
+        <article className="panel">
+          <h2>Inteligência regional por país</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={countries} layout="vertical"><CartesianGrid stroke="#203248" /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" /><Tooltip /><Bar dataKey="value" fill="#45a3ff" radius={5} /></BarChart>
+          </ResponsiveContainer>
+        </article>
+        <article className="panel regional-latest">
+          <h2>Últimos alertas LATAM</h2>
+          {data.latam.recent.slice(0, 4).map((item) => <a key={item.id} href={item.source_url} target="_blank" rel="noreferrer"><span className={`severity ${item.severity}`}>{item.severity}</span><strong>{item.title}</strong><small>{item.country_code} · {item.source_name}</small></a>)}
+          {data.latam.recent.length === 0 && <p className="empty">Sincronize as fontes regionais.</p>}
+        </article>
       </section>
       <section className="charts">
         <article className="panel">
@@ -191,6 +214,35 @@ function Enrichment() {
     {error && <p className="error">{error}</p>}{result && <pre className="panel results">{JSON.stringify(result, null, 2)}</pre>}</>;
 }
 
+function LatamIntel() {
+  const { data, error, load } = useData<RegionalIntel[]>("/latam-intel", []);
+  const [syncing, setSyncing] = useState(false);
+  const [status, setStatus] = useState("");
+  async function sync() {
+    setSyncing(true);
+    try {
+      const result = await api<{ created: number; updated: number }>("/latam-intel/sync", { method: "POST" });
+      setStatus(`${result.created} novos alertas e ${result.updated} atualizados.`);
+      load();
+    } catch (reason) {
+      setStatus((reason as Error).message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+  return <><Header title="Inteligência LATAM" subtitle="Alertas oficiais de CSIRTs da América Latina" action={<button onClick={sync} disabled={syncing}><RefreshCw size={16} /> {syncing ? "Sincronizando..." : "Sincronizar fontes"}</button>} />
+    {(error || status) && <p className={error ? "error" : "notice"}>{error || status}</p>}
+    <section className="intel-grid">{data.map((item) => <article className="panel intel-card" key={item.id}>
+      <div><span className={`severity ${item.severity}`}>{item.severity}</span><span className="country">{item.country_code} · {item.country_name}</span></div>
+      <h2>{item.title}</h2>
+      <p>{item.summary || "Sem resumo fornecido pela fonte."}</p>
+      <div className="tags">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}{item.sectors.map((sector) => <span key={sector}>{sector}</span>)}</div>
+      <footer><small>{item.source_name} · {new Date(item.published_at).toLocaleDateString("pt-BR")}</small><a href={item.source_url} target="_blank" rel="noreferrer">Fonte oficial <ExternalLink size={14} /></a></footer>
+    </article>)}</section>
+    {data.length === 0 && <article className="panel empty">Nenhum alerta regional coletado. Clique em “Sincronizar fontes”.</article>}
+  </>;
+}
+
 function Timeline() {
   const { data } = useData<Array<Record<string, string>>>("/timeline", []);
   return <><Header title="Timeline" subtitle="Histórico cronológico de inteligência" /><article className="panel timeline">{data.map((e) => <div key={e.id}><span className="dot" /><time>{new Date(e.occurred_at).toLocaleString("pt-BR")}</time><strong>{e.title}</strong><small>{e.event_type}</small></div>)}{data.length === 0 && <p className="empty">Nenhum evento registrado.</p>}</article></>;
@@ -207,6 +259,7 @@ export default function App() {
   if (entityConfig[kind]) page = <EntityPage kind={kind} />;
   else if (path === "/reports") page = <Reports />;
   else if (path === "/enrichment") page = <Enrichment />;
+  else if (path === "/latam") page = <LatamIntel />;
   else if (path === "/timeline") page = <Timeline />;
   return <Layout>{page}</Layout>;
 }

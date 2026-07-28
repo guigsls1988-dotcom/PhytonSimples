@@ -162,3 +162,19 @@ class EnrichmentResult(Base):
     status: Mapped[str] = mapped_column(String(30))
     data: Mapped[dict] = mapped_column(JSON, default=dict)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RegionalIntel(Base):
+    __tablename__ = "regional_intel"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500))
+    summary: Mapped[str | None] = mapped_column(Text)
+    source_name: Mapped[str] = mapped_column(String(120), index=True)
+    source_url: Mapped[str] = mapped_column(String(2048), unique=True)
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    country_name: Mapped[str] = mapped_column(String(80), index=True)
+    severity: Mapped[str] = mapped_column(String(20), default="medium", index=True)
+    sectors: Mapped[list[str]] = mapped_column(JSON, default=list)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

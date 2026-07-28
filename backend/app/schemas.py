@@ -143,3 +143,18 @@ class TimelineRead(ORMModel):
     entity_id: str
     occurred_at: datetime
     details: dict
+
+
+class RegionalIntelRead(ORMModel):
+    id: uuid.UUID
+    title: str
+    summary: str | None
+    source_name: str
+    source_url: str
+    country_code: str
+    country_name: str
+    severity: str
+    sectors: list[str]
+    tags: list[str]
+    published_at: datetime
+    ingested_at: datetime
