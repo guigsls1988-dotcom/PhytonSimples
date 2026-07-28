@@ -4,7 +4,6 @@ import {
   Bug,
   FileSearch,
   Gauge,
-  LogOut,
   Radio,
   ShieldAlert,
   Swords,
@@ -12,14 +11,6 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-  BrowserRouter,
-  NavLink,
-  Navigate,
-  Route,
-  Routes,
-  useNavigate,
-} from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -33,41 +24,9 @@ import {
   YAxis,
 } from "recharts";
 
-import { api, DashboardData, Entity, login, token } from "./api";
+import { api, DashboardData, Entity } from "./api";
 
 const COLORS = ["#35d0ba", "#f5b942", "#ff6b6b", "#7c83fd", "#45a3ff"];
-
-function Login() {
-  const navigate = useNavigate();
-  const [error, setError] = useState("");
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    try {
-      await login(String(data.get("email")), String(data.get("password")));
-      navigate("/");
-    } catch (reason) {
-      setError((reason as Error).message);
-    }
-  }
-  return (
-    <main className="login">
-      <section className="login-card">
-        <ShieldAlert size={40} />
-        <p className="eyebrow">CYBER THREAT INTELLIGENCE</p>
-        <h1>Palmer CTI Investigate</h1>
-        <p className="muted">Inteligência acionável, em um único lugar.</p>
-        <form onSubmit={submit}>
-          <label>E-mail<input name="email" type="email" required /></label>
-          <label>Senha<input name="password" type="password" required /></label>
-          {error && <p className="error">{error}</p>}
-          <button>Entrar na plataforma</button>
-        </form>
-        <p className="hint">Crie o primeiro usuário pela API em <code>/docs</code>.</p>
-      </section>
-    </main>
-  );
-}
 
 const links = [
   ["/", "Dashboard", Gauge],
@@ -88,14 +47,11 @@ function Layout({ children }: { children: ReactNode }) {
         <div className="brand"><ShieldAlert /><div><strong>Palmer</strong><small>CTI INVESTIGATE</small></div></div>
         <nav>
           {links.map(([path, label, Icon]) => (
-            <NavLink key={path} to={path} end={path === "/"}>
+            <a key={path} href={path} className={window.location.pathname === path ? "active" : ""}>
               <Icon size={18} />{label}
-            </NavLink>
+            </a>
           ))}
         </nav>
-        <button className="logout" onClick={() => { sessionStorage.clear(); location.assign("/login"); }}>
-          <LogOut size={17} /> Sair
-        </button>
       </aside>
       <main className="content">{children}</main>
     </div>
@@ -244,17 +200,13 @@ function Header({ title, subtitle, action }: { title: string; subtitle: string; 
   return <header className="page-header"><div><p className="eyebrow">PALMER CTI INVESTIGATE</p><h1>{title}</h1><p>{subtitle}</p></div>{action}</header>;
 }
 
-function Protected({ children }: { children: ReactNode }) {
-  return token() ? <Layout>{children}</Layout> : <Navigate to="/login" replace />;
-}
-
 export default function App() {
-  return <BrowserRouter><Routes><Route path="/login" element={<Login />} />
-    <Route path="/" element={<Protected><Dashboard /></Protected>} />
-    {Object.keys(entityConfig).map((kind) => <Route key={kind} path={`/${kind}`} element={<Protected><EntityPage kind={kind} /></Protected>} />)}
-    <Route path="/reports" element={<Protected><Reports /></Protected>} />
-    <Route path="/enrichment" element={<Protected><Enrichment /></Protected>} />
-    <Route path="/timeline" element={<Protected><Timeline /></Protected>} />
-    <Route path="*" element={<Navigate to="/" />} />
-  </Routes></BrowserRouter>;
+  const path = window.location.pathname;
+  const kind = path.slice(1);
+  let page: ReactNode = <Dashboard />;
+  if (entityConfig[kind]) page = <EntityPage kind={kind} />;
+  else if (path === "/reports") page = <Reports />;
+  else if (path === "/enrichment") page = <Enrichment />;
+  else if (path === "/timeline") page = <Timeline />;
+  return <Layout>{page}</Layout>;
 }

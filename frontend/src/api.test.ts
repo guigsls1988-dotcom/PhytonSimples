@@ -1,17 +1,21 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { token } from "./api";
+import { api } from "./api";
 
-describe("sessão", () => {
-  afterEach(() => sessionStorage.clear());
+describe("cliente público da API", () => {
+  afterEach(() => vi.unstubAllGlobals());
 
-  it("lê o token JWT da sessão", () => {
-    sessionStorage.setItem("access_token", "jwt-de-teste");
-    expect(token()).toBe("jwt-de-teste");
-  });
-
-  it("retorna null sem uma sessão autenticada", () => {
-    expect(token()).toBeNull();
+  it("consulta o dashboard sem cabeçalho de autenticação", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ counts: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await api("/dashboard");
+    const headers = fetchMock.mock.calls[0][1].headers as Headers;
+    expect(headers.has("Authorization")).toBe(false);
   });
 });

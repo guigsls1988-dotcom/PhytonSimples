@@ -106,7 +106,6 @@ async def me(user: CurrentUser) -> User:
 @router.get("/iocs", response_model=list[IOCRead])
 async def list_iocs(
     session: Session,
-    _: CurrentUser,
     search: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
@@ -117,7 +116,7 @@ async def list_iocs(
 
 
 @router.post("/iocs", response_model=IOCRead, status_code=201)
-async def create_ioc(payload: IOCWrite, session: Session, _: CurrentUser) -> IOC:
+async def create_ioc(payload: IOCWrite, session: Session) -> IOC:
     try:
         value = normalize_ioc(payload.type, payload.value)
     except ValueError as exc:
@@ -132,7 +131,7 @@ async def create_ioc(payload: IOCWrite, session: Session, _: CurrentUser) -> IOC
 
 
 @router.get("/iocs/{entity_id}", response_model=IOCRead)
-async def get_ioc(entity_id: uuid.UUID, session: Session, _: CurrentUser) -> IOC:
+async def get_ioc(entity_id: uuid.UUID, session: Session) -> IOC:
     entity = await SQLAlchemyRepository(session, IOC).get(entity_id)
     if not entity:
         raise HTTPException(status_code=404, detail="IOC não encontrado")
@@ -141,7 +140,7 @@ async def get_ioc(entity_id: uuid.UUID, session: Session, _: CurrentUser) -> IOC
 
 @router.put("/iocs/{entity_id}", response_model=IOCRead)
 async def update_ioc(
-    entity_id: uuid.UUID, payload: IOCWrite, session: Session, _: CurrentUser
+    entity_id: uuid.UUID, payload: IOCWrite, session: Session
 ) -> IOC:
     entity = await SQLAlchemyRepository(session, IOC).get(entity_id)
     if not entity:
@@ -156,7 +155,7 @@ async def update_ioc(
 
 
 @router.delete("/iocs/{entity_id}", status_code=204)
-async def delete_ioc(entity_id: uuid.UUID, session: Session, _: CurrentUser) -> None:
+async def delete_ioc(entity_id: uuid.UUID, session: Session) -> None:
     entity = await SQLAlchemyRepository(session, IOC).get(entity_id)
     if not entity:
         raise HTTPException(status_code=404, detail="IOC não encontrado")
@@ -165,12 +164,12 @@ async def delete_ioc(entity_id: uuid.UUID, session: Session, _: CurrentUser) -> 
 
 
 @router.get("/cves", response_model=list[CVERead])
-async def list_cves(session: Session, _: CurrentUser, search: str | None = None) -> list[CVE]:
+async def list_cves(session: Session, search: str | None = None) -> list[CVE]:
     return await SQLAlchemyRepository(session, CVE).list(search=search)
 
 
 @router.post("/cves", response_model=CVERead, status_code=201)
-async def create_cve(payload: CVEWrite, session: Session, _: CurrentUser) -> CVE:
+async def create_cve(payload: CVEWrite, session: Session) -> CVE:
     entity = CVE(**payload.model_dump())
     await SQLAlchemyRepository(session, CVE).add(entity)
     await record_event(session, "cve.created", f"CVE adicionada: {entity.cve_id}", "cve", entity.id)
@@ -180,13 +179,13 @@ async def create_cve(payload: CVEWrite, session: Session, _: CurrentUser) -> CVE
 
 @router.get("/threat-actors", response_model=list[ActorRead])
 async def list_actors(
-    session: Session, _: CurrentUser, search: str | None = None
+    session: Session, search: str | None = None
 ) -> list[ThreatActor]:
     return await SQLAlchemyRepository(session, ThreatActor).list(search=search)
 
 
 @router.post("/threat-actors", response_model=ActorRead, status_code=201)
-async def create_actor(payload: ActorWrite, session: Session, _: CurrentUser) -> ThreatActor:
+async def create_actor(payload: ActorWrite, session: Session) -> ThreatActor:
     entity = ThreatActor(**payload.model_dump())
     await SQLAlchemyRepository(session, ThreatActor).add(entity)
     await record_event(
@@ -198,14 +197,14 @@ async def create_actor(payload: ActorWrite, session: Session, _: CurrentUser) ->
 
 @router.get("/mitre-techniques", response_model=list[TechniqueRead])
 async def list_techniques(
-    session: Session, _: CurrentUser, search: str | None = None
+    session: Session, search: str | None = None
 ) -> list[MitreTechnique]:
     return await SQLAlchemyRepository(session, MitreTechnique).list(search=search)
 
 
 @router.post("/mitre-techniques", response_model=TechniqueRead, status_code=201)
 async def create_technique(
-    payload: TechniqueWrite, session: Session, _: CurrentUser
+    payload: TechniqueWrite, session: Session
 ) -> MitreTechnique:
     entity = MitreTechnique(**payload.model_dump())
     await SQLAlchemyRepository(session, MitreTechnique).add(entity)
@@ -222,13 +221,13 @@ async def create_technique(
 
 @router.get("/campaigns", response_model=list[CampaignRead])
 async def list_campaigns(
-    session: Session, _: CurrentUser, search: str | None = None
+    session: Session, search: str | None = None
 ) -> list[Campaign]:
     return await SQLAlchemyRepository(session, Campaign).list(search=search)
 
 
 @router.post("/campaigns", response_model=CampaignRead, status_code=201)
-async def create_campaign(payload: CampaignWrite, session: Session, _: CurrentUser) -> Campaign:
+async def create_campaign(payload: CampaignWrite, session: Session) -> Campaign:
     data = payload.model_dump(exclude={"ioc_ids", "actor_ids", "technique_ids"})
     entity = Campaign(**data)
     if payload.ioc_ids:
@@ -262,7 +261,6 @@ async def create_campaign(payload: CampaignWrite, session: Session, _: CurrentUs
 @router.post("/reports", response_model=ReportRead, status_code=201)
 async def upload_report(
     session: Session,
-    _: CurrentUser,
     title: Annotated[str, Form()],
     file: Annotated[UploadFile, File()],
 ) -> Report:
@@ -314,12 +312,12 @@ async def upload_report(
 
 
 @router.get("/reports", response_model=list[ReportRead])
-async def list_reports(session: Session, _: CurrentUser) -> list[Report]:
+async def list_reports(session: Session) -> list[Report]:
     return await SQLAlchemyRepository(session, Report).list()
 
 
 @router.post("/lookups")
-async def lookup(payload: LookupRequest, session: Session, _: CurrentUser) -> dict:
+async def lookup(payload: LookupRequest, session: Session) -> dict:
     results = await EnrichmentService(get_settings()).lookup(
         payload.observable, payload.providers
     )
@@ -338,7 +336,7 @@ async def lookup(payload: LookupRequest, session: Session, _: CurrentUser) -> di
 
 @router.get("/timeline", response_model=list[TimelineRead])
 async def timeline(
-    session: Session, _: CurrentUser, limit: int = Query(default=100, ge=1, le=500)
+    session: Session, limit: int = Query(default=100, ge=1, le=500)
 ) -> list[TimelineEvent]:
     result = await session.scalars(
         select(TimelineEvent).order_by(TimelineEvent.occurred_at.desc()).limit(limit)
@@ -347,7 +345,7 @@ async def timeline(
 
 
 @router.get("/dashboard")
-async def dashboard(session: Session, _: CurrentUser) -> dict:
+async def dashboard(session: Session) -> dict:
     counts = {}
     for name, model in (
         ("iocs", IOC),

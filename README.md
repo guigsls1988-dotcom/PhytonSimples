@@ -10,7 +10,7 @@ enriquecer indicadores de ameaças.
 - Upload de PDF, validação e extração híbrida de IOCs (parser local + IA opcional)
 - Consultas server-side em Shodan, Censys, VirusTotal, AbuseIPDB, GreyNoise e MISP
 - Dashboard, score de risco transparente e timeline auditável
-- Autenticação JWT e documentação OpenAPI/Swagger
+- Interface operacional sem login e documentação OpenAPI/Swagger
 - API FastAPI assíncrona, PostgreSQL, SQLAlchemy 2 e Repository/Unit of Work
 - Interface React + TypeScript, Docker Compose e testes automatizados
 
@@ -26,8 +26,8 @@ docker compose up --build
 - Swagger: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
-Crie o primeiro usuário pelo Swagger em `POST /api/v1/auth/register`. Depois, use o
-e-mail no campo `username` de `POST /api/v1/auth/login`.
+O dashboard abre diretamente, sem cadastro ou login. Os endpoints JWT foram mantidos
+somente para uma futura reativação de controle de acesso.
 
 ## Arquitetura
 
@@ -53,7 +53,7 @@ extrator local validado continua funcionando sem enviar o conteúdo a terceiros.
 
 | Recurso | Endpoints |
 |---|---|
-| Autenticação | `/api/v1/auth/register`, `/login`, `/me` |
+| Autenticação opcional | `/api/v1/auth/register`, `/login`, `/me` |
 | IOCs | `/api/v1/iocs` |
 | CVEs | `/api/v1/cves` |
 | Threat Actors | `/api/v1/threat-actors` |
@@ -78,7 +78,8 @@ npm run build
 
 ## Produção
 
-Antes de expor a aplicação, substitua os segredos padrão, aplique TLS, use um gestor de
-segredos e armazenamento de objetos com antivírus para PDFs. Para alto volume, mova o
+O modo atual não exige autenticação e deve ser usado apenas localmente ou em rede
+confiável. Antes de expor a aplicação, reative autorização, substitua os segredos
+padrão, aplique TLS, use um gestor de segredos e armazenamento com antivírus. Para alto volume, mova o
 processamento de relatórios e enriquecimentos para workers e use Alembic no lugar da
 criação automática de tabelas.
