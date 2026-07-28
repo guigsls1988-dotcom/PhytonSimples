@@ -1,0 +1,34 @@
+[project]
+name = "palmer-cti-investigate-api"
+version = "1.0.0"
+description = "Cyber Threat Intelligence platform API"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.116.1",
+  "uvicorn[standard]==0.35.0",
+  "sqlalchemy[asyncio]==2.0.41",
+  "asyncpg==0.30.0",
+  "aiosqlite==0.21.0",
+  "alembic==1.16.4",
+  "pydantic-settings==2.10.1",
+  "python-jose[cryptography]==3.5.0",
+  "passlib[bcrypt]==1.7.4",
+  "bcrypt==4.0.1",
+  "python-multipart==0.0.20",
+  "pypdf==5.8.0",
+  "httpx==0.28.1",
+  "email-validator==2.2.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==8.4.1",
+  "pytest-asyncio==1.1.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
