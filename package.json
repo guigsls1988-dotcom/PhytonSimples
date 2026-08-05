@@ -1,0 +1,13 @@
+{
+  "name": "netfive-threat-intel-deck",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gerador do briefing de Threat Intelligence da Netfive",
+  "scripts": {
+    "build": "node gerar-relatorio-c2.js",
+    "check": "node --check gerar-relatorio-c2.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^4.0.1"
+  }
+}
